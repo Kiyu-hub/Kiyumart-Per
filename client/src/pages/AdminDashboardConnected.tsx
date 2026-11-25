@@ -7,7 +7,9 @@ import DashboardSidebar from "@/components/DashboardSidebar";
 import MetricCard from "@/components/MetricCard";
 import TrackingMetricsPanel from "@/components/TrackingMetricsPanel";
 import ThemeToggle from "@/components/ThemeToggle";
-import { DollarSign, ShoppingBag, Users, Truck, Loader2, UserCog, Ticket, Wallet, CheckCircle, XCircle, ExternalLink, MessageCircle, MapPin, AlertTriangle, Wrench, PowerOff, Clock, ShieldAlert, RefreshCw, CalendarDays, ChevronDown } from "lucide-react";
+import AdminMobileOverview from "@/components/admin/AdminMobileOverview";
+import NotificationPopover from "@/components/NotificationPopover";
+import { DollarSign, ShoppingBag, Users, Truck, Loader2, UserCog, Ticket, Wallet, CheckCircle, XCircle, ExternalLink, MessageCircle, MapPin, AlertTriangle, Wrench, PowerOff, Clock, ShieldAlert, RefreshCw, CalendarDays, ChevronDown, Menu, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -243,6 +245,9 @@ function CollapsibleDashboardSection({
 
 export default function AdminDashboardConnected() {
   const [activeItem, setActiveItem] = useState("dashboard");
+  // Mobile (<768px): sidebar becomes a slide-in menu; maintenance card collapses to one line.
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [maintenanceExpanded, setMaintenanceExpanded] = useState(false);
   const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const normalizedRole = (() => {
@@ -1023,15 +1028,67 @@ export default function AdminDashboardConnected() {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      <DashboardSidebar
-        role={isSuperAdmin ? "super_admin" : "admin"}
-        activeItem={activeItem}
-        onItemClick={handleItemClick}
-        userName={user?.name || "Admin"}
-      />
+      <div className="hidden md:flex">
+        <DashboardSidebar
+          role={isSuperAdmin ? "super_admin" : "admin"}
+          activeItem={activeItem}
+          onItemClick={handleItemClick}
+          userName={user?.name || "Admin"}
+        />
+      </div>
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="border-b p-4 flex items-center justify-between">
+      {/* Mobile: same sidebar as a slide-in menu (same pattern as DashboardLayout) */}
+      {isMobileMenuOpen && (
+        <>
+          <div className="mobile-sidebar-overlay md:hidden" onClick={() => setIsMobileMenuOpen(false)} aria-hidden="true" />
+          <div className="mobile-sidebar-panel md:hidden bg-card shadow-2xl">
+            <button
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="absolute top-4 right-3 z-10 p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              aria-label="Close menu"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <DashboardSidebar
+              role={isSuperAdmin ? "super_admin" : "admin"}
+              activeItem={activeItem}
+              onItemClick={(id) => { setIsMobileMenuOpen(false); handleItemClick(id); }}
+              userName={user?.name || "Admin"}
+            />
+          </div>
+        </>
+      )}
+
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Mobile top bar */}
+        <header
+          className="md:hidden flex items-center gap-2 bg-primary px-3 pb-2.5 text-primary-foreground"
+          style={{ paddingTop: "max(10px, env(safe-area-inset-top, 0px))" }}
+        >
+          <button
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="grid h-10 w-10 place-items-center rounded-lg hover:bg-white/10"
+            aria-label="Open admin menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="min-w-0 flex-1 leading-tight">
+            <p className="truncate text-base font-bold" data-testid="text-dashboard-title-mobile">KiyuMart</p>
+            <p className="truncate text-[11px] opacity-80">{isSuperAdmin ? "Super Admin" : "Admin"} Dashboard</p>
+          </div>
+          <div className="[&_button]:text-primary-foreground"><ThemeToggle /></div>
+          <div className="[&_button]:text-primary-foreground"><NotificationPopover /></div>
+          <button
+            onClick={() => navigate("/profile")}
+            className="grid h-9 w-9 place-items-center rounded-full text-xs font-bold"
+            style={{ background: "#009688", minWidth: 0, minHeight: 0 }}
+            aria-label="Open profile"
+          >
+            {(user?.name || "Admin").split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()}
+          </button>
+        </header>
+
+        <header className="hidden md:flex border-b p-4 items-center justify-between">
           <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">
             {isSuperAdmin ? "Super Admin" : "Admin"} Dashboard
           </h1>
@@ -1043,8 +1100,8 @@ export default function AdminDashboardConnected() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-7xl mx-auto space-y-6">
+        <main className="flex-1 overflow-y-auto p-3 pb-28 md:p-6">
+          <div className="max-w-7xl mx-auto space-y-4 md:space-y-6">
 
             {/* Maintenance Mode Control — Super Admin only */}
             {isSuperAdmin && (() => {
@@ -1059,7 +1116,23 @@ export default function AdminDashboardConnected() {
               const currentMsg   = maintenanceStatus?.maintenanceMessage ?? null;
 
               return (
-                <Card className={`border-2 transition-colors ${
+                <>
+                <button
+                  type="button"
+                  onClick={() => setMaintenanceExpanded((v) => !v)}
+                  aria-expanded={maintenanceExpanded}
+                  className={`md:hidden flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-xs ${
+                    isActive ? "border-destructive/40 bg-destructive/5" : "bg-card"
+                  }`}
+                >
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${isActive ? "bg-destructive" : "bg-green-500"}`} />
+                  <span className="flex-1">
+                    <b>{isActive ? "Maintenance on" : "Site is live"}</b>
+                    {isActive && isAuto ? " · lifts automatically" : isActive ? " · customers see the maintenance page" : " · maintenance off"}
+                  </span>
+                  <span className="rounded-full border bg-card px-2.5 py-0.5 text-[11px]">{maintenanceExpanded ? "Hide" : "Details"}</span>
+                </button>
+                <Card className={`border-2 transition-colors ${maintenanceExpanded ? "" : "hidden md:block"} ${
                   isActive
                     ? "border-destructive/60 bg-destructive/5 dark:bg-destructive/8"
                     : "border-primary/20 bg-card"
@@ -1282,8 +1355,25 @@ export default function AdminDashboardConnected() {
                     )}
                   </CardContent>
                 </Card>
+                </>
               );
             })()}
+
+            {/* Mobile overview (phones only; approved 2026-11-25). Desktop sections below are unchanged. */}
+            <AdminMobileOverview
+              userName={user?.name || "Admin"}
+              totalOrders={totalOrdersValue}
+              platformRevenue={typeof totalRevenueValue === "number" ? totalRevenueValue : undefined}
+              ordersChange={(metricChanges as any).totalOrders}
+              revenueChange={(metricChanges as any).platformRevenue}
+              orders={orders as any}
+              pendingApplications={pendingApplicationsCount}
+              sellerPaymentAlerts={sellerPaymentAlerts.length}
+              pendingAssignments={pendingAssignmentsCount}
+              showRiderItems={!isExternalRiderSystemEnabled}
+              formatPrice={formatPrice}
+              navigate={navigate}
+            />
 
             {isSuperAdmin && (
               shouldBlockMetrics ? (
@@ -1302,7 +1392,7 @@ export default function AdminDashboardConnected() {
                       <span>Live analytics are still syncing. Showing dashboard totals now.</span>
                     </div>
                   ) : null}
-                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3">
+                <div className="hidden md:grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3">
                   <MetricCard
                     title="Platform Revenue"
                     value={typeof totalRevenueValue === "number" ? formatPrice(totalRevenueValue) : "..." }
