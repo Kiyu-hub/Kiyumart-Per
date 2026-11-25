@@ -281,7 +281,7 @@ export function MobileSellerDashboard({
                       </p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-[#009688] text-[14px] font-black">GHS {parseFloat(order.totalAmount).toFixed(2)}</p>
+                      <p className="text-[#009688] text-[14px] font-black">GHS {(Number.parseFloat(order.totalAmount) || 0).toFixed(2)}</p>
                       <span className={cn(
                         "text-[10px] font-bold px-2 py-0.5 rounded-full",
                         cfg.bg, cfg.text,

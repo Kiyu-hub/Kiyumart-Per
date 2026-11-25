@@ -12,7 +12,8 @@ const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      "inline-flex h-10 items-center justify-center border-b border-border bg-transparent p-0 text-muted-foreground",
+      // max-w-full + horizontal scroll: a row of many tabs scrolls inside itself on phones instead of widening the page.
+      "inline-flex h-10 max-md:h-auto max-md:min-h-10 max-w-full items-center justify-center overflow-x-auto overflow-y-hidden border-b border-border bg-transparent p-0 text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-md:justify-start",
       className
     )}
     {...props}
@@ -27,7 +28,8 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "inline-flex items-center justify-center whitespace-nowrap px-4 py-2 text-sm font-medium transition-all focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:font-semibold",
+      // Phones: long labels wrap inside their tab instead of overlapping the next one.
+      "inline-flex min-w-0 items-center justify-center whitespace-nowrap max-md:whitespace-normal max-md:text-center max-md:leading-tight max-md:px-2.5 px-4 py-2 text-sm font-medium transition-all focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 border-b-2 border-transparent -mb-px data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:font-semibold",
       className
     )}
     {...props}

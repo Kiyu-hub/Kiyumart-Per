@@ -789,6 +789,89 @@ input, select, textarea {
   }
 }
 
+/* ─── Dashboards on phones (all roles) ───────────────────────────────────────
+   Pages build their own headings, grids and cards. These rules stop the
+   common causes of sideways scrolling without changing desktop:
+   • grid/flex children may shrink below their content width (min-width: 0),
+     so a chart or long line no longer stretches its card past the screen;
+   • heading/action rows wrap their buttons onto a second line when needed;
+   • cards never exceed the screen width; big page titles are a step smaller. */
+@media (max-width: 767px) {
+  [data-route-scroll-container] .grid > *,
+  [data-route-scroll-container] .flex > .flex-1 {
+    min-width: 0;
+  }
+  /* Rows wrap onto a second line only when they don't fit (chips, icon
+     buttons, heading + actions). Opt out with .flex-nowrap. */
+  [data-route-scroll-container] .flex:not(.flex-col):not(.flex-nowrap) {
+    flex-wrap: wrap;
+  }
+  [data-route-scroll-container] .flex.justify-between {
+    row-gap: 0.5rem;
+  }
+  /* Heading + actions rows: the heading keeps a readable width (14rem) and the
+     buttons drop below it, instead of the heading being squeezed into a sliver. */
+  [data-route-scroll-container] .flex.justify-between > *:first-child:not(:only-child) {
+    flex: 1 1 14rem;
+    min-width: 0;
+  }
+  /* Rows that carry the page heading: heading gets the full width, actions below. */
+  [data-route-scroll-container] .flex.justify-between > *:first-child:not(:only-child):has(h1, h2) {
+    flex-basis: 100%;
+  }
+  /* "← | Title block | Button" rows: the title block takes the rest of the line
+     beside the back arrow; the button wraps underneath. */
+  [data-route-scroll-container] .flex:not(.flex-col) > *:has(> h1) {
+    flex: 1 1 calc(100% - 4rem);
+    min-width: 0;
+  }
+  /* Tab rows with 5+ tabs: one line that scrolls sideways (too many to share 360px). */
+  [data-route-scroll-container] [role="tablist"]:has(> :nth-child(5)) {
+    display: flex !important;
+    justify-content: flex-start !important;
+    overflow-x: auto;
+  }
+  [data-route-scroll-container] [role="tablist"]:has(> :nth-child(5)) > [role="tab"] {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  /* One consistent 12px side gutter on every dashboard page (some pages had
+     none, others 24–40px). Nested max-w-7xl wrappers don't add a second one. */
+  [data-route-scroll-container] > * {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+  [data-route-scroll-container] > * .max-w-7xl {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  /* Long unbroken text (codes, URLs, env examples) breaks instead of widening the page. */
+  [data-route-scroll-container] .font-mono,
+  [data-route-scroll-container] code {
+    overflow-wrap: anywhere;
+  }
+  [data-route-scroll-container] .shadcn-card {
+    max-width: 100%;
+    min-width: 0;
+  }
+  /* Tables scroll inside their own box; their containers never widen the page. */
+  [data-route-scroll-container] *:has(> .overflow-auto > table),
+  [data-route-scroll-container] *:has(> table) {
+    min-width: 0;
+    max-width: 100%;
+  }
+  [data-route-scroll-container] h1.text-3xl,
+  [data-route-scroll-container] h1.text-4xl {
+    font-size: 1.5rem;
+    line-height: 2rem;
+  }
+  [data-route-scroll-container] .recharts-responsive-container,
+  [data-route-scroll-container] .recharts-wrapper,
+  [data-route-scroll-container] .recharts-surface {
+    max-width: 100%;
+  }
+}
+
 /* ─── iOS-style action sheet / bottom sheet ─── */
 .bottom-sheet {
   border-radius: 20px 20px 0 0;

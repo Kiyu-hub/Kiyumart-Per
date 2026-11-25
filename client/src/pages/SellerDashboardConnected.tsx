@@ -9,7 +9,7 @@ import { apiRequest, fetchApiJson, queryClient } from "@/lib/queryClient";
 import DashboardSidebar from "@/components/DashboardSidebar";
 import MetricCard from "@/components/MetricCard";
 import ThemeToggle from "@/components/ThemeToggle";
-import { DollarSign, Package, ShoppingBag, TrendingUp, Loader2, AlertCircle, Plus, Pencil, Trash2, Tag, Truck } from "lucide-react";
+import { DollarSign, Package, ShoppingBag, TrendingUp, Loader2, AlertCircle, Plus, Pencil, Trash2, Tag, Truck, Menu, X } from "lucide-react";
 import { Stack, CalendarCheck, Infinity as PhInfinity, Storefront, ArrowCircleUp } from "@phosphor-icons/react";
 import { PaystackInlineService } from "@/lib/paystackInline";
 import { SellerUpgradeModal } from "@/components/SellerUpgradeModal";
@@ -191,6 +191,8 @@ function safeNumber(value: unknown): number {
 
 export default function SellerDashboardConnected() {
   const [activeItem, setActiveItem] = useState("dashboard");
+  // Phones: the sidebar opens as a slide-in menu (same pattern as DashboardLayout).
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [lastGoodRecentOrders, setLastGoodRecentOrders] = useState<Order[]>([]);
   const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -924,7 +926,8 @@ export default function SellerDashboardConnected() {
           id: o.id,
           orderNumber: o.orderNumber,
           status: o.status,
-          totalAmount: o.totalAmount,
+          // Orders store their total as `total` (was reading a non-existent field → "GHS NaN").
+          totalAmount: String(o.total ?? o.totalAmount ?? "0"),
           createdAt: o.createdAt,
           itemCount: o.items?.length,
         }))}
@@ -936,17 +939,50 @@ export default function SellerDashboardConnected() {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      <DashboardSidebar
-        role="seller"
-        activeItem={activeItem}
-        onItemClick={setActiveItem}
-        userName={user.name}
-      />
+      <div className="hidden md:flex">
+        <DashboardSidebar
+          role="seller"
+          activeItem={activeItem}
+          onItemClick={setActiveItem}
+          userName={user.name}
+        />
+      </div>
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="border-b p-4 flex items-center justify-between">
-          <div className="flex items-center gap-2.5" data-testid="text-dashboard-title">
-            <h1 className="text-2xl font-bold">
+      {isMobileMenuOpen && (
+        <>
+          <div className="mobile-sidebar-overlay md:hidden" onClick={() => setIsMobileMenuOpen(false)} aria-hidden="true" />
+          <div className="mobile-sidebar-panel md:hidden bg-card shadow-2xl">
+            <button
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="absolute top-4 right-3 z-10 p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              aria-label="Close menu"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <DashboardSidebar
+              role="seller"
+              activeItem={activeItem}
+              onItemClick={(id) => { setIsMobileMenuOpen(false); setActiveItem(id); }}
+              userName={user.name}
+            />
+          </div>
+        </>
+      )}
+
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <header
+          className="border-b px-3 py-2.5 md:p-4 flex items-center justify-between gap-2"
+          style={{ paddingTop: "max(10px, env(safe-area-inset-top, 0px))" }}
+        >
+          <button
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="md:hidden -ml-1 grid h-10 w-10 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted"
+            aria-label="Open seller menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1" data-testid="text-dashboard-title">
+            <h1 className="truncate text-lg font-bold md:text-2xl">
               {activeItem === "coupons" ? "Coupon Management" : activeItem === "reviews" ? "Ratings & Reviews" : "Seller Dashboard"}
             </h1>
             {tierInfo && (() => {
@@ -986,16 +1022,16 @@ export default function SellerDashboardConnected() {
               return null;
             })()}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <ThemeToggle />
-            <Button variant="outline" onClick={() => navigate("/")} data-testid="button-shop">
+            <Button variant="outline" onClick={() => navigate("/")} data-testid="button-shop" className="hidden sm:inline-flex">
               Shop
             </Button>
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-7xl mx-auto space-y-6">
+        <main className="flex-1 overflow-y-auto px-2 pt-3 pb-28 md:p-6">
+          <div className="max-w-7xl mx-auto space-y-4 max-md:!px-0 md:space-y-6">
             {store && !hasCompletePayoutSetup && (
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
                 <div className="flex items-start gap-3">
