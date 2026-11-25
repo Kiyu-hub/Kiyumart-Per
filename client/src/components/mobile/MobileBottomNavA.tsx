@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 
 // Same full-screen pages that hide the classic bar.
-const HIDE_ROUTES = ["/auth", "/checkout", "/payment", "/live-tracking", "/cart-link", "/search", "/mobile/vendors", "/mobile/stores", "/become-seller", "/become-rider", "/sellers/"];
+const HIDE_ROUTES = ["/auth", "/checkout", "/payment", "/live-tracking", "/cart-link", "/search", "/mobile/vendors", "/mobile/stores", "/become-seller", "/become-rider", "/sellers/", "/product/"]; // product page is full screen on phones
 
 const TEAL = "#009688";
 
