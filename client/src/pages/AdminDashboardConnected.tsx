@@ -1060,33 +1060,50 @@ export default function AdminDashboardConnected() {
       )}
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        {/* Mobile top bar */}
-        <header
-          className="md:hidden flex items-center gap-2 bg-primary px-3 pb-2.5 text-primary-foreground"
-          style={{ paddingTop: "max(10px, env(safe-area-inset-top, 0px))" }}
-        >
-          <button
-            onClick={() => setIsMobileMenuOpen(true)}
-            className="grid h-10 w-10 place-items-center rounded-lg hover:bg-white/10"
-            aria-label="Open admin menu"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-          <div className="min-w-0 flex-1 leading-tight">
-            <p className="truncate text-base font-bold" data-testid="text-dashboard-title-mobile">KiyuMart</p>
-            <p className="truncate text-[11px] opacity-80">{isSuperAdmin ? "Super Admin" : "Admin"} Dashboard</p>
-          </div>
-          <div className="[&_button]:text-primary-foreground"><ThemeToggle /></div>
-          <div className="[&_button]:text-primary-foreground"><NotificationPopover /></div>
-          <button
-            onClick={() => navigate("/profile")}
-            className="grid h-9 w-9 place-items-center rounded-full text-xs font-bold"
-            style={{ background: "#009688", minWidth: 0, minHeight: 0 }}
-            aria-label="Open profile"
-          >
-            {(user?.name || "Admin").split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()}
-          </button>
-        </header>
+        {/* Mobile top bar (owner-approved "S2"): menu, dashboard type + date, bell; kente thread underneath. */}
+        <div className="md:hidden bg-card" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+          <header className="flex items-center gap-1 py-2 pl-1 pr-2">
+            <button
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="grid h-11 w-11 place-items-center rounded-lg hover:bg-muted"
+              aria-label="Open admin menu"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <div className="min-w-0 flex-1 leading-tight">
+              <p className="truncate text-[17px] font-bold" data-testid="text-dashboard-title-mobile">
+                {isSuperAdmin ? "Super Admin" : "Admin"} Dashboard
+              </p>
+              <p className="truncate text-[11.5px] text-muted-foreground">
+                {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
+              </p>
+            </div>
+            <NotificationPopover />
+          </header>
+          <div
+            aria-hidden
+            className="h-1"
+            style={{ backgroundImage: "repeating-linear-gradient(90deg,#F59E0B 0 10px,#1e7b5f 10px 22px,#ffffff 22px 24px,#009688 24px 38px,#111111 38px 40px,#00897B 40px 54px)" }}
+          />
+          {/* Red line under the header, only while maintenance is on (Super Admin). */}
+          {isSuperAdmin && maintenanceStatus?.isMaintenanceMode && (
+            <button
+              type="button"
+              onClick={() => {
+                setMaintenanceExpanded((v) => !v);
+                document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+              aria-expanded={maintenanceExpanded}
+              className="flex w-full items-center gap-2 bg-destructive px-4 py-2 text-left text-xs font-semibold text-destructive-foreground"
+              style={{ minHeight: 0 }}
+            >
+              <span className="flex-1">
+                Maintenance is on{maintenanceStatus?.isAutoMaintenance ? " · lifts automatically" : " · customers see the maintenance page"}
+              </span>
+              <span className="underline underline-offset-2">{maintenanceExpanded ? "Hide" : "Manage"}</span>
+            </button>
+          )}
+        </div>
 
         <header className="hidden md:flex border-b p-4 items-center justify-between">
           <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">
@@ -1117,21 +1134,6 @@ export default function AdminDashboardConnected() {
 
               return (
                 <>
-                <button
-                  type="button"
-                  onClick={() => setMaintenanceExpanded((v) => !v)}
-                  aria-expanded={maintenanceExpanded}
-                  className={`md:hidden flex w-full items-center gap-2 rounded-xl border px-3 py-2.5 text-left text-xs ${
-                    isActive ? "border-destructive/40 bg-destructive/5" : "bg-card"
-                  }`}
-                >
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${isActive ? "bg-destructive" : "bg-green-500"}`} />
-                  <span className="flex-1">
-                    <b>{isActive ? "Maintenance on" : "Site is live"}</b>
-                    {isActive && isAuto ? " · lifts automatically" : isActive ? " · customers see the maintenance page" : " · maintenance off"}
-                  </span>
-                  <span className="rounded-full border bg-card px-2.5 py-0.5 text-[11px]">{maintenanceExpanded ? "Hide" : "Details"}</span>
-                </button>
                 <Card className={`border-2 transition-colors ${maintenanceExpanded ? "" : "hidden md:block"} ${
                   isActive
                     ? "border-destructive/60 bg-destructive/5 dark:bg-destructive/8"
@@ -1371,6 +1373,10 @@ export default function AdminDashboardConnected() {
               sellerPaymentAlerts={sellerPaymentAlerts.length}
               pendingAssignments={pendingAssignmentsCount}
               showRiderItems={!isExternalRiderSystemEnabled}
+              onOpenMaintenance={isSuperAdmin && !maintenanceStatus?.isMaintenanceMode ? () => {
+                setMaintenanceExpanded(true);
+                document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
+              } : undefined}
               formatPrice={formatPrice}
               navigate={navigate}
             />

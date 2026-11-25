@@ -12,7 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchApiJson } from "@/lib/queryClient";
 import {
   ShoppingCart, Wallet, Store, Tag, BarChart3, ClipboardList, UserCheck, CreditCard,
-  Bike, ChevronRight, PieChart, Crown, ShoppingBag,
+  Bike, ChevronRight, PieChart, Wrench,
 } from "lucide-react";
 
 type OrderLike = { id: string; orderNumber?: string; total?: string; status?: string; paymentStatus?: string; createdAt?: string; customerInfo?: { name?: string } | null };
@@ -29,6 +29,8 @@ export interface AdminMobileOverviewProps {
   pendingAssignments: number;
   /** Internal rider system on (isExternalRiderSystemEnabled === false): show rider items. */
   showRiderItems: boolean;
+  /** Super Admin only: maintenance is off, offer a row to open the controls. */
+  onOpenMaintenance?: () => void;
   formatPrice: (n: number) => string;
   navigate: (to: string) => void;
 }
@@ -54,15 +56,26 @@ function Change({ value }: { value?: number }) {
   );
 }
 
-function StatCard({ icon: Icon, label, value, change, onClick }: { icon: any; label: string; value: string; change?: number; onClick?: () => void }) {
+// One accent per card (owner request 2026-11-25): tinted card + coloured icon.
+const ACCENTS = {
+  teal:   { rgb: "0,150,136",  fg: "#009688" },
+  green:  { rgb: "30,123,95",  fg: "#1e7b5f" },
+  amber:  { rgb: "245,158,11", fg: "#D97706" },
+  indigo: { rgb: "99,102,241", fg: "#6366F1" },
+} as const;
+type Accent = keyof typeof ACCENTS;
+
+function StatCard({ icon: Icon, label, value, change, onClick, accent }: { icon: any; label: string; value: string; change?: number; onClick?: () => void; accent: Accent }) {
+  const a = ACCENTS[accent];
   return (
     <button
       type="button"
       onClick={onClick}
-      className="flex min-w-0 items-start gap-2.5 rounded-2xl border bg-card p-3 text-left shadow-sm active:scale-[0.98] transition-transform"
-      style={{ minHeight: 0 }}
+      data-accent={accent}
+      className="flex min-w-0 items-start gap-2.5 rounded-2xl border p-3 text-left active:scale-[0.98] transition-transform"
+      style={{ minHeight: 0, background: `rgba(${a.rgb},.10)`, borderColor: `rgba(${a.rgb},.28)` }}
     >
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full max-[359px]:hidden" style={{ background: "rgba(0,150,136,.12)", color: TEAL }}>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full max-[359px]:hidden" style={{ background: `rgba(${a.rgb},.18)`, color: a.fg }}>
         <Icon className="h-4 w-4" />
       </span>
       <span className="min-w-0">
@@ -183,8 +196,7 @@ function CategoryDonut({ products, categories }: { products: any[]; categories: 
 }
 
 export default function AdminMobileOverview(props: AdminMobileOverviewProps) {
-  const { userName, totalOrders, platformRevenue, ordersChange, revenueChange, orders, formatPrice, navigate } = props;
-  const firstName = (userName || "Admin").split(" ")[0];
+  const { totalOrders, platformRevenue, ordersChange, revenueChange, orders, formatPrice, navigate } = props;
 
   const { data: stores = [] } = useQuery<any[]>({
     queryKey: ["/api/stores", "admin-mobile-overview"],
@@ -219,21 +231,12 @@ export default function AdminMobileOverview(props: AdminMobileOverviewProps) {
 
   return (
     <section className="space-y-3 md:hidden" data-admin-mobile-overview>
-      {/* Welcome banner */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-[#00897B] p-4 text-white">
-        <p className="text-lg font-bold leading-tight">
-          Welcome back,<br />{firstName} <Crown className="inline h-4 w-4 -translate-y-0.5 text-amber-300" />
-        </p>
-        <p className="mt-1 max-w-[62%] text-xs opacity-85">Here's how KiyuMart is doing today.</p>
-        <ShoppingBag className="absolute -bottom-2 right-3 h-20 w-20 opacity-20" strokeWidth={1.5} aria-hidden />
-      </div>
-
       {/* Key numbers */}
       <div className="grid grid-cols-2 gap-2.5">
-        <StatCard icon={ShoppingCart} label="Total orders" value={totalOrders.toLocaleString("en-GH")} change={ordersChange} onClick={() => navigate("/admin/orders")} />
-        <StatCard icon={Wallet} label="Platform revenue" value={typeof platformRevenue === "number" ? formatPrice(platformRevenue) : "…"} change={revenueChange} />
-        <StatCard icon={Store} label="Active sellers" value={safeStores.length.toLocaleString("en-GH")} onClick={() => navigate("/admin/sellers")} />
-        <StatCard icon={Tag} label="Total products" value={safeProducts.length.toLocaleString("en-GH")} onClick={() => navigate("/admin/products")} />
+        <StatCard accent="teal" icon={ShoppingCart} label="Total orders" value={totalOrders.toLocaleString("en-GH")} change={ordersChange} onClick={() => navigate("/admin/orders")} />
+        <StatCard accent="green" icon={Wallet} label="Platform revenue" value={typeof platformRevenue === "number" ? formatPrice(platformRevenue) : "…"} change={revenueChange} />
+        <StatCard accent="amber" icon={Store} label="Active sellers" value={safeStores.length.toLocaleString("en-GH")} onClick={() => navigate("/admin/sellers")} />
+        <StatCard accent="indigo" icon={Tag} label="Total products" value={safeProducts.length.toLocaleString("en-GH")} onClick={() => navigate("/admin/products")} />
       </div>
 
       {/* Sales overview */}
@@ -273,6 +276,14 @@ export default function AdminMobileOverview(props: AdminMobileOverviewProps) {
         </div>
         <CategoryDonut products={safeProducts} categories={safeCategories} />
       </div>
+
+      {props.onOpenMaintenance && (
+        <button type="button" onClick={props.onOpenMaintenance} className="flex w-full items-center gap-3 rounded-2xl border bg-card p-3 text-left text-[13px]">
+          <Wrench className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="flex-1"><b>Maintenance mode</b> <span className="text-muted-foreground">· Off</span></span>
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        </button>
+      )}
 
       {/* Recent orders */}
       <div className="rounded-2xl border bg-card p-3 shadow-sm">
