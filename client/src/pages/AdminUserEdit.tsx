@@ -508,7 +508,7 @@ export default function AdminUserEdit() {
 
                     {/* Business kind — General vs Restaurant / Local Vendor.
                         Food storeTypes only show under the Food kind. */}
-                    <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2">
+                    <div data-fashion-only="hidden" className="!hidden rounded-xl border border-border bg-muted/30 p-3 space-y-2">
                       <FormLabel>Business Kind <span className="text-destructive">*</span></FormLabel>
                       <p className="text-xs text-muted-foreground">
                         General stores and food businesses are managed separately. Pick the kind to see the right store types.
@@ -555,17 +555,16 @@ export default function AdminUserEdit() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>
-                            {businessKind === "food" ? "Food Business Type" : "Store Type"}{" "}
+                            Fashion Category{" "}
                             <span className="text-destructive">*</span>
                           </FormLabel>
                           <p className="text-xs text-muted-foreground">
                             {businessKind === "food"
                               ? "Pick whether this is a local vendor or sit-down restaurant."
-                              : "Choose the category that best fits this seller's business."}
+                              : "Choose what this seller mainly sells. Clothing & Fashion covers shoes, bags and accessories."}
                           </p>
                           <StoreTypeSelector
                             value={field.value || null}
-                            kind={businessKind}
                             onChange={(value) => {
                               field.onChange(value);
                               form.setValue("storeTypeMetadata", {});

@@ -291,6 +291,8 @@ export default function AdminProducts() {
               <p className="text-muted-foreground mt-1">Browse stores first, then open a store to manage the products inside it</p>
             </div>
             <Button
+              data-fashion-only="hidden"
+              className="!hidden"
               variant="outline"
               onClick={() => navigate("/admin/food-products")}
               data-testid="button-go-food-products"

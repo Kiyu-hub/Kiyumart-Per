@@ -614,7 +614,7 @@ export default function AdminApplications() {
   const rejectedFoodCount = rejectedSellerApplications.filter((a) => isFoodStoreType(a.storeType)).length;
 
   const SellerKindTabs = () => (
-    <div className="mb-4 flex flex-wrap gap-2" data-testid="seller-kind-tabs">
+    <div data-fashion-only="hidden" className="!hidden mb-4 flex flex-wrap gap-2" data-testid="seller-kind-tabs">
       <Button
         size="sm"
         variant={sellerKind === "general" ? "default" : "outline"}

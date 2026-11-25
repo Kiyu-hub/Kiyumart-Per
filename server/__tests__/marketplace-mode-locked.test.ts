@@ -10,6 +10,8 @@ async function run() {
   }
   const update = withPermanentMultiVendor({ isMultiVendor: false });
   if (update.isMultiVendor !== true) throw new Error("Legacy requests must be overridden");
+  const food = withPermanentMultiVendor({ restaurantsEnabled: true });
+  if (food.restaurantsEnabled !== false) throw new Error("Fashion-only: restaurants must never activate");
   console.log("marketplace-mode-locked.test passed");
 }
 run().catch(err => { console.error(err); process.exitCode = 1; });

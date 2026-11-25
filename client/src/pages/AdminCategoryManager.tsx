@@ -23,7 +23,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDes
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Edit, Trash2, ArrowUp, ArrowDown, ArrowLeft, Loader2 } from "lucide-react";
 import type { Category } from "@shared/schema";
-import { STORE_TYPES } from "@shared/storeTypes";
+import { STORE_TYPES, isFashionStoreType } from "@shared/storeTypes";
 import { productMatchesCategory } from "@/lib/categoryUtils";
 
 const dynamicFieldSchema = z.object({
@@ -400,9 +400,9 @@ export default function AdminCategoryManager() {
             >
               <TabsList>
                 <TabsTrigger value="stores" data-testid="tab-store-categories">
-                  Stores ({storeCategories.length})
+                  Fashion ({storeCategories.length})
                 </TabsTrigger>
-                <TabsTrigger value="food" data-testid="tab-food-categories">
+                <TabsTrigger data-fashion-only="hidden" className="!hidden" value="food" data-testid="tab-food-categories">
                   Restaurants &amp; Local Vendors ({foodCategories.length})
                 </TabsTrigger>
                 <TabsTrigger value="pending" data-testid="tab-pending-categories">
@@ -658,15 +658,15 @@ export default function AdminCategoryManager() {
                       // categories under review may belong to either scope).
                       const isFoodTab = activeTab === "food";
                       const isStoresTab = activeTab === "stores";
-                      const visibleStoreTypes = isFoodTab
-                        ? STORE_TYPES.filter((t) => t === "food_beverages" || t === "restaurant")
-                        : isStoresTab
-                          ? STORE_TYPES.filter((t) => t !== "food_beverages" && t !== "restaurant")
-                          : STORE_TYPES;
+                      // Fashion-only marketplace: only fashion store types are offered,
+                      // plus any older type already saved on this category.
+                      const visibleStoreTypes = STORE_TYPES.filter(
+                        (t) => isFashionStoreType(t) || field.value?.includes(t),
+                      );
                       const scopeLabel = isFoodTab
                         ? "Restaurants & Local Vendors"
                         : isStoresTab
-                          ? "general store types"
+                          ? "fashion store types"
                           : "store types";
                       return (
                         <FormItem>
@@ -675,7 +675,7 @@ export default function AdminCategoryManager() {
                             {isFoodTab
                               ? "Pick which food businesses can use this category. Leave empty to apply to all restaurants and local vendors."
                               : isStoresTab
-                                ? "Pick which general store types can use this category. Food-only options are managed separately under the Restaurants & Local Vendors tab."
+                                ? "Pick which fashion store types can use this category. Leave empty to apply to all."
                                 : "Leave empty to show this category to all store types. Select specific types to restrict visibility."}
                           </FormDescription>
                           <div className="grid grid-cols-2 gap-4 mt-3">

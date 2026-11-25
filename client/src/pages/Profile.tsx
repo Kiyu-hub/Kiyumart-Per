@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { User, MapPin, CreditCard, Package, LogOut, Settings, Camera, Loader2, Truck, Store } from "lucide-react";
 import MediaUploadInput from "@/components/MediaUploadInput";
 import { useLocation } from "wouter";
-import { STORE_TYPES, STORE_TYPE_CONFIG } from "@shared/storeTypes";
+import { STORE_TYPES, STORE_TYPE_CONFIG, getSelectableStoreTypes } from "@shared/storeTypes";
 import { resolveSavedLocationToAddress } from "@/lib/locationPrefill";
 
 interface UserProfile {
@@ -468,10 +468,10 @@ export default function Profile() {
                                 onValueChange={(value) => handleInputChange("storeType", value)}
                               >
                                 <SelectTrigger id="storeType" data-testid="select-store-type-profile">
-                                  <SelectValue placeholder="Select store type" />
+                                  <SelectValue placeholder="Select fashion category" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {STORE_TYPES.map((type) => (
+                                  {getSelectableStoreTypes(formData.storeType).map((type) => (
                                     <SelectItem key={type} value={type}>
                                       {STORE_TYPE_CONFIG[type].label}
                                     </SelectItem>

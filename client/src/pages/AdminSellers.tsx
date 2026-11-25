@@ -279,7 +279,7 @@ function CreateSellerDialog() {
             {/* Business kind toggle — keeps food and general storeTypes
                 strictly separated. Food types only show under the
                 Restaurants & Local Vendors mode. */}
-            <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2" data-testid="business-kind-toggle">
+            <div data-fashion-only="hidden" className="!hidden rounded-xl border border-border bg-muted/30 p-3 space-y-2" data-testid="business-kind-toggle">
               <FormLabel>Business Kind <span className="text-destructive">*</span></FormLabel>
               <FormDescription>
                 Pick the kind of business — this controls which store types appear below.
@@ -313,17 +313,16 @@ function CreateSellerDialog() {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>
-                    {businessKind === "food" ? "Food Business Type" : "Store Type"}{" "}
+                    Fashion Category{" "}
                     <span className="text-destructive">*</span>
                   </FormLabel>
                   <FormDescription>
                     {businessKind === "food"
                       ? "Pick whether this is a local vendor or a sit-down restaurant."
-                      : "Choose the category that best fits this seller's business. Food businesses are managed under the Restaurant / Local Vendor option above."}
+                      : "Choose what this seller mainly sells. Clothing & Fashion covers shoes, bags and accessories."}
                   </FormDescription>
                   <StoreTypeSelector
                     value={field.value}
-                    kind={businessKind}
                     onChange={(value) => {
                       field.onChange(value);
                       form.setValue("storeTypeMetadata", {});
@@ -646,7 +645,7 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
             {/* Business kind toggle — keeps food and general storeTypes
                 strictly separated. Food types only show under the
                 Restaurants & Local Vendors mode. */}
-            <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2" data-testid="business-kind-toggle">
+            <div data-fashion-only="hidden" className="!hidden rounded-xl border border-border bg-muted/30 p-3 space-y-2" data-testid="business-kind-toggle">
               <FormLabel>Business Kind <span className="text-destructive">*</span></FormLabel>
               <FormDescription>
                 Pick the kind of business — this controls which store types appear below.
@@ -680,17 +679,16 @@ function EditSellerDialog({ sellerData }: { sellerData: SellerData }) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>
-                    {businessKind === "food" ? "Food Business Type" : "Store Type"}{" "}
+                    Fashion Category{" "}
                     <span className="text-destructive">*</span>
                   </FormLabel>
                   <FormDescription>
                     {businessKind === "food"
                       ? "Pick whether this is a local vendor or a sit-down restaurant."
-                      : "Choose the category that best fits this seller's business. Food businesses are managed under the Restaurant / Local Vendor option above."}
+                      : "Choose what this seller mainly sells. Clothing & Fashion covers shoes, bags and accessories."}
                   </FormDescription>
                   <StoreTypeSelector
                     value={field.value}
-                    kind={businessKind}
                     onChange={(value) => {
                       field.onChange(value);
                       form.setValue("storeTypeMetadata", {});
@@ -1628,7 +1626,7 @@ export default function AdminSellers() {
             {/* Business-kind split — sellers are never mixed between the two
                 kinds. Food storeTypes (food_beverages / restaurant) only show
                 in the Restaurants & Local Vendors tab. */}
-            <div className="mb-4 flex flex-wrap gap-2" data-testid="kind-tabs">
+            <div data-fashion-only="hidden" className="!hidden mb-4 flex flex-wrap gap-2" data-testid="kind-tabs">
               <Button
                 variant={activeKind === "general" ? "default" : "outline"}
                 size="sm"

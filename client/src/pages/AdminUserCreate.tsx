@@ -19,21 +19,13 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { getRoleDisplayName } from "@/lib/roleLabels";
 
+// Fashion-only marketplace: these are the only store types an admin can give a
+// new seller. (Older non-fashion types stay valid in the schema for old records.)
 const GENERAL_STORE_TYPE_OPTIONS = [
-  { value: "clothing", label: "Clothing & Fashion" },
-  { value: "electronics", label: "Electronics" },
+  { value: "clothing", label: "Clothing & Fashion (incl. shoes, bags, accessories)" },
   { value: "beauty_cosmetics", label: "Beauty & Cosmetics" },
-  { value: "home_garden", label: "Home & Garden" },
-  { value: "sports_fitness", label: "Sports & Fitness" },
-  { value: "books_media", label: "Books & Media" },
-  { value: "toys_games", label: "Toys & Games" },
-  { value: "automotive", label: "Automotive" },
-  { value: "health_wellness", label: "Health & Wellness" },
 ];
-const FOOD_STORE_TYPE_OPTIONS = [
-  { value: "food_beverages", label: "Food & Beverages (Local Vendor)" },
-  { value: "restaurant", label: "Restaurant" },
-];
+const FOOD_STORE_TYPE_OPTIONS: { value: string; label: string }[] = [];
 
 const createUserSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -132,7 +124,7 @@ export default function AdminUserCreate() {
       role: defaultRole,
       nationalIdCard: "",
       businessAddress: "",
-      storeType: undefined,
+      storeType: "clothing",
       vehicleType: "",
       vehicleColor: "",
       vehiclePlateNumber: "",
@@ -381,7 +373,7 @@ export default function AdminUserCreate() {
                     {/* Business kind — food vs general never mix. Switching
                         clears storeType so an admin can't accidentally save a
                         food type under "General Store". */}
-                    <div className="rounded-xl border border-border bg-muted/30 p-3 space-y-2">
+                    <div data-fashion-only="hidden" className="!hidden rounded-xl border border-border bg-muted/30 p-3 space-y-2">
                       <FormLabel>Business Kind <span className="text-destructive">*</span></FormLabel>
                       <p className="text-xs text-muted-foreground">
                         General stores and food businesses are managed separately. Pick the kind to see the right store types below.
@@ -414,13 +406,13 @@ export default function AdminUserCreate() {
                       render={({ field }) => (
                         <FormItem>
                           <FormLabel>
-                            {businessKind === "food" ? "Food Business Type" : "Store Type / Category"}{" "}
+                            Fashion Category{" "}
                             <span className="text-destructive">*</span>
                           </FormLabel>
                           <Select onValueChange={field.onChange} value={field.value}>
                             <FormControl>
                               <SelectTrigger data-testid="select-store-type-trigger">
-                                <SelectValue placeholder={businessKind === "food" ? "Select food business type" : "Select store type"} />
+                                <SelectValue placeholder="Select fashion category" />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent data-testid="select-store-type-content">
@@ -434,7 +426,7 @@ export default function AdminUserCreate() {
                           <FormDescription>
                             {businessKind === "food"
                               ? "Local vendors and restaurants are surfaced separately from general stores across the platform."
-                              : "This determines which product categories will be available for this seller."}
+                              : "Clothing & Fashion covers clothes, shoes, bags and accessories."}
                           </FormDescription>
                           <FormMessage />
                         </FormItem>

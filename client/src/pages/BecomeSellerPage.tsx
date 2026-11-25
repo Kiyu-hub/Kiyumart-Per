@@ -80,7 +80,7 @@ export default function BecomeSellerPage() {
   const [selectedStoreType, setSelectedStoreType] = useState<StoreType | null>(null);
   const [metadataErrors, setMetadataErrors] = useState<Record<string, string>>({});
   // Business type step — must be chosen before the main form appears
-  const [businessType, setBusinessType] = useState<"store" | "restaurant" | "local_vendor" | null>(null);
+  const [businessType, setBusinessType] = useState<"store" | "restaurant" | "local_vendor" | null>("store") // fashion-only: sellers go straight to the fashion store form;
   // When the platform-wide food experience is disabled, hide the restaurant /
   // local-vendor application options entirely.
   const { restaurantsEnabled } = usePlatformSettings();
@@ -423,11 +423,11 @@ export default function BecomeSellerPage() {
               </div>
               <div className="flex flex-col gap-3">
                 {([
-                  { type: "store" as const,        icon: "🏪", label: "Store",        desc: "General merchandise, clothing, electronics & more" },
+                  { type: "store" as const,        icon: "🛍️", label: "Fashion Store", desc: "Clothing, shoes, bags, accessories & beauty" },
                   { type: "restaurant" as const,   icon: "🍽️", label: "Restaurant",   desc: "Dine-in or takeout food & drinks" },
                   { type: "local_vendor" as const, icon: "🥘", label: "Local Vendor",  desc: "Home-cooked food, local produce & street goods" },
                 ] as const)
-                  .filter(({ type }) => restaurantsEnabled || (type !== "restaurant" && type !== "local_vendor"))
+                  .filter(({ type }) => type === "store") /* fashion-only */
                   .map(({ type, icon, label, desc }) => (
                   <button
                     key={type}
@@ -461,10 +461,10 @@ export default function BecomeSellerPage() {
                 </div>
                 <div>
                   <CardTitle className="text-lg leading-tight">
-                    {businessType === "restaurant" ? "Open a Restaurant" : businessType === "local_vendor" ? "Register as Local Vendor" : "Open a Store"}
+                    {businessType === "restaurant" ? "Open a Restaurant" : businessType === "local_vendor" ? "Register as Local Vendor" : "Open a Fashion Store"}
                   </CardTitle>
                   <CardDescription className="text-xs mt-0.5">
-                    {businessType === "restaurant" ? "Set up your restaurant on KiyuMart" : businessType === "local_vendor" ? "Sell local food & goods near you" : "Start selling your products on KiyuMart"}
+                    {businessType === "restaurant" ? "Set up your restaurant on KiyuMart" : businessType === "local_vendor" ? "Sell local food & goods near you" : "Sell clothing, shoes, bags, accessories & beauty on KiyuMart"}
                   </CardDescription>
                 </div>
               </div>
@@ -746,8 +746,8 @@ export default function BecomeSellerPage() {
                     {businessType === "store" && (
                       <FormField control={form.control} name="storeType" render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Store Type <span className="text-destructive">*</span></FormLabel>
-                          <FormDescription>Choose the category that best describes your store.</FormDescription>
+                          <FormLabel>Fashion Category <span className="text-destructive">*</span></FormLabel>
+                          <FormDescription>What do you mainly sell? Clothing & Fashion covers shoes, bags and accessories.</FormDescription>
                           <StoreTypeSelector
                             value={field.value}
                             onChange={(value) => { field.onChange(value); setSelectedStoreType(value as StoreType); form.setValue("storeTypeMetadata", {}); }}
@@ -841,14 +841,7 @@ export default function BecomeSellerPage() {
                   )}
 
                   <div className="flex justify-end gap-3 pt-4">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setBusinessType(null)}
-                      data-testid="button-cancel"
-                    >
-                      ← Change type
-                    </Button>
+                    {/* fashion-only: there is only one business type, so no "Change type" */}
                     <Button
                       type="submit"
                       disabled={applyMutation.isPending || uploading !== null || sameRoleAlreadySubmitted || blockedByOtherRole}

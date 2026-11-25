@@ -275,11 +275,9 @@ export default function StoreDetailsPage() {
     },
   });
 
+  // Fashion-only marketplace: Fashion Boutique is the only merchant persona offered.
   const MERCHANT_CATEGORIES = [
-    { value: "QUICK_EATS", label: "Quick Eats" },
-    { value: "HEALTH_ESSENTIALS", label: "Health Essentials" },
-    { value: "RETAIL_BOUTIQUE", label: "Retail Boutique" },
-    { value: "GENERAL_PROVISIONS", label: "General Provisions" },
+    { value: "RETAIL_BOUTIQUE", label: "Fashion Boutique" },
   ];
 
   if (authLoading || !isAuthenticated || (user?.role !== "admin" && user?.role !== "super_admin")) {

@@ -6,6 +6,7 @@ import {
   type DynamicField,
   type StoreKind,
   isFoodStoreType,
+  getSelectableStoreTypes,
 } from "@shared/storeTypes";
 import { CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -31,7 +32,11 @@ interface StoreTypeSelectorProps {
 }
 
 export function StoreTypeSelector({ value, onChange, error, exclude = [], kind }: StoreTypeSelectorProps) {
+  // Fashion-only marketplace: offer only the fashion types (plus the current
+  // value, so an older non-fashion record still shows what it is).
+  const selectable = getSelectableStoreTypes(value);
   const visibleTypes = STORE_TYPES.filter((t) => {
+    if (!selectable.includes(t)) return false;
     if (exclude.includes(t)) return false;
     if (kind === "general" && isFoodStoreType(t)) return false;
     if (kind === "food" && !isFoodStoreType(t)) return false;
@@ -39,7 +44,7 @@ export function StoreTypeSelector({ value, onChange, error, exclude = [], kind }
   });
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {visibleTypes.map((type) => {
           const cfg = STORE_TYPE_CONFIG[type];
           const selected = value === type;

@@ -293,6 +293,9 @@ export default function AdminHeroBanners() {
   };
 
   const getStoreModeBadge = (mode: string) => {
+    // Multi-vendor is permanent and every banner shows in it (former
+    // single-store banners included), so the store-mode badge is no longer shown.
+    if (mode) return null;
     switch (mode) {
       case "single":
         return <Badge variant="outline" className="gap-1"><Store className="h-3 w-3" /> Single Store</Badge>;
@@ -335,8 +338,8 @@ export default function AdminHeroBanners() {
           </Button>
         </div>
 
-        {/* Info Card */}
-        <Card>
+        {/* Info Card — fashion-only: one placement (homepage), so hidden */}
+        <Card data-fashion-only="hidden" className="!hidden">
           <CardHeader>
             <CardTitle className="text-lg">Where banners live</CardTitle>
             <CardDescription>
@@ -350,8 +353,10 @@ export default function AdminHeroBanners() {
           </CardHeader>
         </Card>
 
-        {/* Placement tabs */}
+        {/* Placement tabs — fashion-only: food tab removed, homepage only */}
         <Tabs
+          data-fashion-only="hidden"
+          className="!hidden"
           value={placementTab}
           onValueChange={(v) => setPlacementTab(v === "food_vendors" ? "food_vendors" : "home")}
         >
@@ -400,7 +405,6 @@ export default function AdminHeroBanners() {
                   <TableRow>
                     <TableHead className="w-[100px]">Preview</TableHead>
                     <TableHead>Title</TableHead>
-                    <TableHead>Store Mode</TableHead>
                     <TableHead>Order</TableHead>
                     <TableHead>Active</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
@@ -428,7 +432,6 @@ export default function AdminHeroBanners() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell>{getStoreModeBadge(banner.storeMode)}</TableCell>
                       <TableCell>
                         <Badge variant="outline">{banner.displayOrder}</Badge>
                       </TableCell>
@@ -508,7 +511,7 @@ export default function AdminHeroBanners() {
                 />
               </div>
               
-              <div className="space-y-2">
+              <div data-fashion-only="hidden" className="!hidden space-y-2">
                 <Label htmlFor="storeMode">Store Mode *</Label>
                 <Select
                   value={formData.storeMode}
@@ -544,7 +547,7 @@ export default function AdminHeroBanners() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
+              <div data-fashion-only="hidden" className="!hidden space-y-2">
                 <Label htmlFor="placement">Placement *</Label>
                 <Select
                   value={formData.placement}

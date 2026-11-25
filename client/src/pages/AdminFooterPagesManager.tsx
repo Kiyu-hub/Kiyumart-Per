@@ -29,11 +29,13 @@ const FOOTER_GROUPS = [
   { value: "general", label: "General" },
 ];
 
-const STORE_MODES = [
+const STORE_MODES_ALL = [
   { value: "both", label: "Both Modes", icon: Globe },
-  { value: "single", label: "Single Store", icon: Store },
+  { value: "single", label: "Single Store (retired)", icon: Store },
   { value: "multivendor", label: "Multi-Vendor", icon: LayoutGrid },
 ];
+// Single-store mode is retired; it is no longer offered for new or edited items.
+const STORE_MODES = STORE_MODES_ALL.filter((m) => m.value !== "single");
 
 const footerPageFormSchema = insertFooterPageSchema.extend({
   slug: z.string().min(1, "Slug is required").regex(/^[a-z0-9-]+$/, "Slug can only contain lowercase letters, numbers, and hyphens"),
@@ -231,7 +233,7 @@ export default function AdminFooterPagesManager() {
   }, {} as Record<string, FooterPage[]>);
 
   const getGroupLabel = (g: string) => FOOTER_GROUPS.find(f => f.value === g)?.label || g;
-  const getStoreModeLabel = (m: string) => STORE_MODES.find(s => s.value === m)?.label || m;
+  const getStoreModeLabel = (m: string) => STORE_MODES_ALL.find(s => s.value === m)?.label || m;
   const getStoreModeBadgeClass = (m: string) => {
     if (m === "single") return "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20";
     if (m === "multivendor") return "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20";
@@ -271,7 +273,6 @@ export default function AdminFooterPagesManager() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="single">Single Store</SelectItem>
                 <SelectItem value="multivendor">Multi-Vendor</SelectItem>
               </SelectContent>
             </Select>
@@ -446,7 +447,7 @@ export default function AdminFooterPagesManager() {
           <Store className="h-4 w-4 text-muted-foreground" />
           <span className="text-muted-foreground">Active store mode:</span>
           <Badge variant="outline" className={settings?.isMultiVendor ? "border-purple-500 text-purple-500" : "border-blue-500 text-blue-500"}>
-            {settings?.isMultiVendor ? "Multi-Vendor Marketplace" : "Single Store"}
+            Multi-Vendor Marketplace
           </Badge>
           <span className="text-muted-foreground">•</span>
           <span className="text-muted-foreground">

@@ -95,9 +95,10 @@ export default function MarketplaceBannerCarousel({
   ];
 
   // Prepare effective banners: if single-store mode, ensure mandatory banners are included
-  const effectiveBanners = isSingleStoreMode
-    ? [...banners, ...mandatoryBanners].filter((b, i, arr) => arr.findIndex(x => x.id === b.id) === i)
-    : banners;
+  // KiyuMart is permanently multi-vendor; the former single-store fashion
+  // banners are kept and shown in multi-vendor mode too.
+  void isSingleStoreMode;
+  const effectiveBanners = [...banners, ...mandatoryBanners].filter((b, i, arr) => arr.findIndex(x => x.id === b.id) === i);
 
   if (isLoading) {
     return (

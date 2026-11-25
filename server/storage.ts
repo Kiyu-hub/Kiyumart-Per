@@ -4728,7 +4728,10 @@ export class DbStorage implements IStorage {
   // Hero Banner operations
   async getHeroBanners(storeMode?: string, placement?: string): Promise<HeroBanner[]> {
     const conditions: any[] = [eq(heroBanners.isActive, true)];
-    if (storeMode && storeMode !== 'both') {
+    // KiyuMart is permanently multi-vendor: banners once made for single-store
+    // mode are shown in multi-vendor mode too, so the store-mode filter only
+    // applies when a caller explicitly asks for 'single'.
+    if (storeMode === 'single') {
       conditions.push(or(
         eq(heroBanners.storeMode, storeMode as any),
         eq(heroBanners.storeMode, 'both'),

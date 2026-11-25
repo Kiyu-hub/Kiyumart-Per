@@ -518,7 +518,7 @@ export default function AdminStoresList() {
           </div>
 
           {/* Business-kind tabs — general stores and food businesses never mix. */}
-          <div className="mb-4 flex flex-wrap gap-2" data-testid="store-kind-tabs">
+          <div data-fashion-only="hidden" className="!hidden mb-4 flex flex-wrap gap-2" data-testid="store-kind-tabs">
             <Button
               variant={activeKind === "general" ? "default" : "outline"}
               size="sm"

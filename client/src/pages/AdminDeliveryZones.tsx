@@ -36,13 +36,15 @@ import {
 } from "@/components/ui/table";
 import { Loader2, Plus, Edit, Trash2, MapPin, Users, Mail, Phone, Lightbulb } from "lucide-react";
 
-// Suggested delivery fees per merchant category (GHS)
-const MERCHANT_TYPE_FEE_PRESETS = [
+// Suggested delivery fees per merchant category (GHS).
+// Fashion-only marketplace: only the fashion / boutique presets are offered.
+const ALL_MERCHANT_TYPE_FEE_PRESETS = [
   { label: "Quick Eats", category: "QUICK_EATS", note: "Short-radius hot food", presets: [{ name: "Local (2–3 km)", fee: "5.00" }, { name: "Nearby (3–5 km)", fee: "8.00" }, { name: "City-wide", fee: "12.00" }] },
   { label: "Health Essentials", category: "HEALTH_ESSENTIALS", note: "Pharmacy / medical supply", presets: [{ name: "Local", fee: "8.00" }, { name: "City-wide", fee: "15.00" }, { name: "Region-wide", fee: "25.00" }] },
-  { label: "Retail Boutique", category: "RETAIL_BOUTIQUE", note: "Fashion / general retail", presets: [{ name: "City-wide", fee: "12.00" }, { name: "Region-wide", fee: "20.00" }, { name: "National", fee: "35.00" }] },
+  { label: "Fashion Boutique", category: "RETAIL_BOUTIQUE", note: "Clothing, shoes, bags & beauty", presets: [{ name: "City-wide", fee: "12.00" }, { name: "Region-wide", fee: "20.00" }, { name: "National", fee: "35.00" }] },
   { label: "General Provisions", category: "GENERAL_PROVISIONS", note: "Groceries / provisions", presets: [{ name: "Local", fee: "6.00" }, { name: "City-wide", fee: "15.00" }, { name: "Region-wide", fee: "25.00" }] },
 ] as const;
+const MERCHANT_TYPE_FEE_PRESETS = ALL_MERCHANT_TYPE_FEE_PRESETS.filter((p) => p.category === "RETAIL_BOUTIQUE");
 
 const GHANA_REGIONS = [
   "Greater Accra",

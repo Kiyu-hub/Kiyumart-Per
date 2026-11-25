@@ -911,7 +911,6 @@ export default function AdminSettings() {
   ];
   const STORE_MODES_FOOTER = [
     { value: "both", label: "Both Modes" },
-    { value: "single", label: "Single Store" },
     { value: "multivendor", label: "Multi-Vendor" },
   ];
 
@@ -2806,7 +2805,7 @@ export default function AdminSettings() {
                         data-testid="switch-external-rider-system"
                       />
                     </div>
-                    <div className="flex items-center justify-between p-3 border rounded-lg bg-background">
+                    <div data-fashion-only="hidden" className="!hidden flex items-center justify-between p-3 border rounded-lg bg-background">
                       <div className="space-y-0.5 pr-4">
                         <Label htmlFor="restaurantsEnabled">Enable Restaurants &amp; Local Vendors</Label>
                         <p className="text-sm text-muted-foreground">
@@ -3040,7 +3039,7 @@ export default function AdminSettings() {
 
                     {/* Per-mode toggles */}
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="flex items-center justify-between rounded-xl border p-4">
+                      <div data-fashion-only="hidden" className="!hidden flex items-center justify-between rounded-xl border p-4">
                         <div>
                           <p className="text-sm font-medium">Single-Store Mode</p>
                           <p className="text-xs text-muted-foreground">Referrals active in single-store mode.</p>
@@ -4102,7 +4101,6 @@ export default function AdminSettings() {
                       <Select value={activeFooterModeFilter} onValueChange={setFooterStoreModeFilter}>
                         <SelectTrigger className="w-[180px]" data-testid="select-footer-mode-filter"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="single">Single Store</SelectItem>
                           <SelectItem value="multivendor">Multi-Vendor</SelectItem>
                         </SelectContent>
                       </Select>

@@ -36,10 +36,32 @@ export const FOOD_STORE_TYPE_LIST: StoreType[] = STORE_TYPES.filter(
   (t) => FOOD_STORE_TYPES.has(t as any),
 );
 
+/**
+ * KiyuMart is a fashion-only marketplace. These are the only store types a
+ * seller can choose when registering or being created. The other entries in
+ * STORE_TYPES stay so existing records keep validating — they are simply no
+ * longer offered anywhere. Clothing covers shoes, bags and accessories.
+ */
+export const FASHION_STORE_TYPES: StoreType[] = ["clothing", "beauty_cosmetics"];
+export const DEFAULT_FASHION_STORE_TYPE: StoreType = "clothing";
+
+export function isFashionStoreType(storeType?: string | null): boolean {
+  return !!storeType && (FASHION_STORE_TYPES as string[]).includes(storeType);
+}
+
+/** Types a picker should show: the fashion types, plus the current value so an
+ *  older non-fashion record still displays instead of appearing blank. */
+export function getSelectableStoreTypes(current?: string | null): StoreType[] {
+  if (current && !isFashionStoreType(current) && (STORE_TYPES as readonly string[]).includes(current)) {
+    return [...FASHION_STORE_TYPES, current as StoreType];
+  }
+  return FASHION_STORE_TYPES;
+}
+
 export type StoreKind = "general" | "food";
 
 export const STORE_KIND_LABELS: Record<StoreKind, string> = {
-  general: "General Stores",
+  general: "Fashion Stores",
   food: "Restaurants & Local Vendors",
 };
 

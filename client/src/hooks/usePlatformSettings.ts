@@ -73,7 +73,7 @@ export function usePlatformSettings() {
     settings: query.data ?? defaultPublicPlatformSettings,
     isExternalRiderSystemEnabled,
     // Food experience master switch. Defaults OFF (only true when explicitly enabled).
-    restaurantsEnabled: query.data?.restaurantsEnabled === true,
+    restaurantsEnabled: false, // fashion-only marketplace: food experience is permanently off
     showCheckoutDeliveryMap: query.data?.showCheckoutDeliveryMap !== false,
     // Marketplace mode cannot be disabled, even while settings load.
     isMultiVendor: true,

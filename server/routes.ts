@@ -89,7 +89,18 @@ import {
   buildStoreTypeProductDefaults,
   type StoreType,
   STORE_TYPES,
+  isFashionStoreType,
+  FASHION_STORE_TYPES,
 } from "@shared/storeTypes";
+
+// KiyuMart is a fashion-only marketplace: new sellers may only register with a
+// fashion store type, and never as a restaurant / local food vendor.
+const FASHION_ONLY_SELLER_ERROR =
+  "KiyuMart is a fashion marketplace. Choose one of: " + FASHION_STORE_TYPES.join(", ");
+function isNonFashionSellerRequest(storeType: unknown, businessType?: unknown): boolean {
+  if (businessType === "restaurant" || businessType === "local_vendor") return true;
+  return typeof storeType === "string" && storeType !== "" && !isFashionStoreType(storeType);
+}
 import buildPaystackInitializePayload from './paystackUtils';
 import { getValidFrontendUrl, getFrontendUrlSync, clearFrontendUrlCache } from './frontendUrlResolver';
 import { runtimeConfig } from "./config/runtimeConfig";
@@ -3397,6 +3408,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!sellerStoreType || !STORE_TYPES.includes(sellerStoreType as StoreType)) {
           return res.status(400).json({ error: "Store type is required" });
         }
+        if (isNonFashionSellerRequest(sellerStoreType, req.body?.businessType)) {
+          return res.status(400).json({ error: FASHION_ONLY_SELLER_ERROR });
+        }
         try {
           const storeTypeSchema = getStoreTypeSchema(sellerStoreType as StoreType);
           storeTypeSchema.parse(sellerStoreTypeMetadata || {});
@@ -4388,6 +4402,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { storeType, vehicleType, vehicleColor, vehiclePlateNumber, vehicleLicense } = req.body;
       
       const validatedData = insertUserSchema.parse(req.body);
+      if (validatedData.role === "seller" && isNonFashionSellerRequest(storeType, req.body?.businessType)) {
+        return res.status(400).json({ error: FASHION_ONLY_SELLER_ERROR });
+      }
       const existingUser = await storage.getUserByEmail(validatedData.email);
       
       if (existingUser) {
@@ -5196,6 +5213,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (!STORE_TYPES.includes(userData.storeType)) {
         return res.status(400).json({ error: "Invalid store type" });
+      }
+      if (isNonFashionSellerRequest(userData.storeType, userData.businessType)) {
+        return res.status(400).json({ error: FASHION_ONLY_SELLER_ERROR });
       }
 
       try {
@@ -6009,7 +6029,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // When the food experience is disabled platform-wide, food-vendor products
     // must never reach the public feeds (prevents them flashing in before the
     // client can filter by store). Mirrors isFoodVendorStore() on the client.
-    const foodExperienceOff = platformSettingsForFood?.restaurantsEnabled !== true;
+    const foodExperienceOff = true; // fashion-only marketplace: food never reaches public feeds
     const isFoodStore = (store: any) =>
       store?.businessType === "local_vendor" ||
       store?.businessType === "restaurant" ||
@@ -16665,7 +16685,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       res.json({
         isExternalRiderSystemEnabled: settings.isExternalRiderSystemEnabled === true,
-        restaurantsEnabled: settings.restaurantsEnabled === true,
+        restaurantsEnabled: false, // fashion-only marketplace
         showCheckoutDeliveryMap: settings.showCheckoutDeliveryMap !== false,
         isMultiVendor: settings.isMultiVendor === true,
         allowSellerBankPayouts: settings.allowSellerBankPayouts !== false,
