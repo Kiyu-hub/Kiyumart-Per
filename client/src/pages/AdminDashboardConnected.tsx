@@ -1085,24 +1085,34 @@ export default function AdminDashboardConnected() {
             className="h-1"
             style={{ backgroundImage: "repeating-linear-gradient(90deg,#F59E0B 0 10px,#1e7b5f 10px 22px,#ffffff 22px 24px,#009688 24px 38px,#111111 38px 40px,#00897B 40px 54px)" }}
           />
-          {/* Red line under the header, only while maintenance is on (Super Admin). */}
-          {isSuperAdmin && maintenanceStatus?.isMaintenanceMode && (
-            <button
-              type="button"
-              onClick={() => {
-                setMaintenanceExpanded((v) => !v);
-                document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
-              }}
-              aria-expanded={maintenanceExpanded}
-              className="flex w-full items-center gap-2 bg-destructive px-4 py-2 text-left text-xs font-semibold text-destructive-foreground"
-              style={{ minHeight: 0 }}
-            >
-              <span className="flex-1">
-                Maintenance is on{maintenanceStatus?.isAutoMaintenance ? " · lifts automatically" : " · customers see the maintenance page"}
-              </span>
-              <span className="underline underline-offset-2">{maintenanceExpanded ? "Hide" : "Manage"}</span>
-            </button>
-          )}
+          {/* M3 (owner-approved 2026-11-25): soft one-line strip, only while maintenance is on (Super Admin). */}
+          {isSuperAdmin && maintenanceStatus?.isMaintenanceMode && (() => {
+            const end = maintenanceStatus?.maintenanceScheduledEnd ? new Date(maintenanceStatus.maintenanceScheduledEnd) : null;
+            const endLabel = end && !Number.isNaN(end.getTime())
+              ? end.toLocaleString("en-GB", end.toDateString() === new Date().toDateString()
+                  ? { hour: "2-digit", minute: "2-digit" }
+                  : { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+              : null;
+            return (
+              <button
+                type="button"
+                onClick={() => {
+                  setMaintenanceExpanded((v) => !v);
+                  document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+                aria-expanded={maintenanceExpanded}
+                className="flex w-full items-center gap-2 whitespace-nowrap border-b border-red-500/25 bg-red-500/10 px-4 py-2 text-left text-xs text-red-600 dark:bg-red-500/15 dark:text-red-400"
+                style={{ minHeight: 0 }}
+              >
+                <span className="h-2 w-2 shrink-0 rounded-full bg-red-500 motion-safe:animate-pulse" />
+                <b>Maintenance on</b>
+                <span className="min-w-0 truncate">
+                  {maintenanceStatus?.isAutoMaintenance ? "· lifts automatically" : endLabel ? `· ends ${endLabel}` : ""}
+                </span>
+                <span className="ml-auto font-bold">{maintenanceExpanded ? "Hide" : "Manage ›"}</span>
+              </button>
+            );
+          })()}
         </div>
 
         <header className="hidden md:flex border-b p-4 items-center justify-between">
