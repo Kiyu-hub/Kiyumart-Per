@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import ThemeToggle from "@/components/ThemeToggle";
 import { AlertTriangle, RefreshCw, ShieldAlert, Menu, X } from "lucide-react";
+import { useDashboardChrome } from "@/hooks/useDashboardChrome";
 
 interface User {
   id: string;
@@ -172,6 +173,7 @@ export default function DashboardLayout({
   role,
   showBackButton = true,
 }: DashboardLayoutProps) {
+  useDashboardChrome();
   const [location, setLocation] = useLocation();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 

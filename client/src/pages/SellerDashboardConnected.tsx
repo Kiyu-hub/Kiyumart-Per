@@ -29,6 +29,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { format } from "date-fns";
+import { useDashboardChrome } from "@/hooks/useDashboardChrome";
 
 interface Analytics {
   totalOrders: number;
@@ -190,6 +191,7 @@ function safeNumber(value: unknown): number {
 }
 
 export default function SellerDashboardConnected() {
+  useDashboardChrome();
   const [activeItem, setActiveItem] = useState("dashboard");
   // Phones: the sidebar opens as a slide-in menu (same pattern as DashboardLayout).
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);

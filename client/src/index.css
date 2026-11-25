@@ -789,6 +789,22 @@ input, select, textarea {
   }
 }
 
+/* ─── Dashboard colour on phones ─────────────────────────────────────────────
+   Owner request 2026-11-25: on phones, dashboard buttons/active items use the
+   mobile brand teal #009688 (hsl 174.4 100% 29.4%) instead of the admin green.
+   `html.km-dash` is set by useDashboardChrome() while a dashboard is open.
+   !important beats the admin brand colour that useBranding() sets inline. */
+@media (max-width: 767px) {
+  html.km-dash {
+    --primary: 174.4 100% 29.4% !important;
+    --primary-foreground: 0 0% 100% !important;
+    --ring: 174.4 100% 29.4% !important;
+    --sidebar-primary: 174.4 100% 29.4% !important;
+    --sidebar-ring: 174.4 100% 29.4% !important;
+    --chart-1: 174.4 100% 29.4% !important;
+  }
+}
+
 /* ─── Dashboards on phones (all roles) ───────────────────────────────────────
    Pages build their own headings, grids and cards. These rules stop the
    common causes of sideways scrolling without changing desktop:

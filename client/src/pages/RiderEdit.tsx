@@ -16,6 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import MediaUploadInput from "@/components/MediaUploadInput";
+import { useDashboardChrome } from "@/hooks/useDashboardChrome";
 
 interface RiderUser {
   id: string;
@@ -75,6 +76,7 @@ const editRiderSchema = z.object({
 type EditRiderFormData = z.infer<typeof editRiderSchema>;
 
 export default function RiderEdit() {
+  useDashboardChrome();
   const [activeItem, setActiveItem] = useState("riders");
   const [, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();

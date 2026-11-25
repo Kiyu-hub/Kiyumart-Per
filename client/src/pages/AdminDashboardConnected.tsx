@@ -23,6 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useSocket } from "@/contexts/NotificationContext";
 import { apiRequest, fetchApiJson } from "@/lib/queryClient";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { useDashboardChrome } from "@/hooks/useDashboardChrome";
 
 interface Analytics {
   totalOrders: number;
@@ -244,6 +245,7 @@ function CollapsibleDashboardSection({
 }
 
 export default function AdminDashboardConnected() {
+  useDashboardChrome();
   const [activeItem, setActiveItem] = useState("dashboard");
   // Mobile (<768px): sidebar becomes a slide-in menu; maintenance card collapses to one line.
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
