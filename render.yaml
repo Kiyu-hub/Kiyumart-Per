@@ -31,7 +31,7 @@ services:
       - key: KIYUMART_USE_EMBEDDED_VITE
         value: "false"
       - key: FRONTEND_URL
-        value: https://kiyumartofficial.netlify.app
+        value: https://kiyumart1.netlify.app
 
       # ---- Secrets: enter in the Render dashboard. Copy from your .env, but
       #      ROTATE first — these were previously exposed in a public repo. ----

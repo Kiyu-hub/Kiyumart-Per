@@ -612,7 +612,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "http://127.0.0.1:5001",
     "http://127.0.0.1:5173",
     "https://kiyumart.netlify.app",
+    "https://kiyumart1.netlify.app",
+    "https://kiyumartofficial.netlify.app",
     process.env.FRONTEND_URL,
+    ...String(process.env.ALLOWED_ORIGINS || "").split(",").map((o) => o.trim()),
   ].filter(Boolean) as string[];
 
   const io = new SocketIOServer(httpServer, {

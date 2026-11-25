@@ -112,6 +112,22 @@ const allowedOrigins = [
   process.env.FRONTEND_URL,
 ].filter(Boolean) as string[];
 
+// Production frontends that may call this API with cookies. Exact origins only
+// (no wildcard subdomains). The site moved to a new Netlify project on
+// 2026-11-25 (kiyumart1); the original address stays allowed until it is retired.
+// Extra origins can be added without a code change via ALLOWED_ORIGINS
+// (comma-separated, e.g. a custom domain).
+const productionOrigins = new Set(
+  [
+    'https://kiyumart1.netlify.app',
+    'https://kiyumartofficial.netlify.app',
+    'https://kiyumart.netlify.app',
+    ...String(process.env.ALLOWED_ORIGINS || '').split(','),
+  ]
+    .map((o) => o.trim().replace(/\/$/, ''))
+    .filter(Boolean),
+);
+
 // Gzip compress all responses — reduces payload size 60-80%
 app.use(compression());
 
@@ -126,9 +142,9 @@ app.use(cors({
     if (allowedOrigins.some(allowed => origin.startsWith(allowed.replace(/\/$/, '')))) {
       return callback(null, true);
     }
-    // In production, ONLY allow exact Netlify domain to prevent subdomain takeovers
+    // In production, ONLY allow exact known frontend origins to prevent subdomain takeovers
     if (process.env.NODE_ENV === 'production') {
-      if (origin === 'https://kiyumart.netlify.app') {
+      if (productionOrigins.has(origin.replace(/\/$/, ''))) {
         return callback(null, true);
       }
     } else {
