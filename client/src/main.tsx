@@ -3,6 +3,9 @@ import * as Sentry from "@sentry/react";
 import App from "./App";
 import ErrorBoundary from "./components/ErrorBoundary";
 import registerServiceWorker from "./serviceWorkerRegistration";
+import { installStaleChunkReload, isStaleChunkError, reloadForStaleChunk } from "./lib/staleChunkReload";
+
+installStaleChunkReload();
 import "./index.css";
 
 // Sentry — only initialises when VITE_SENTRY_DSN is set (production)
@@ -35,7 +38,9 @@ if (import.meta.env.VITE_SENTRY_DSN) {
 
 createRoot(document.getElementById("root")!).render(
   <Sentry.ErrorBoundary
-    fallback={({ error, resetError }) => (
+    fallback={({ error, resetError }) => {
+      if (isStaleChunkError(error) && reloadForStaleChunk()) return <div style={{ padding: 32, textAlign: "center" }}>Updating KiyuMart…</div>;
+      return (
       <div style={{ padding: 32, textAlign: "center" }}>
         <h2 style={{ marginBottom: 8 }}>Something went wrong</h2>
         <p style={{ color: "#666", marginBottom: 16 }}>
@@ -48,7 +53,8 @@ createRoot(document.getElementById("root")!).render(
           Try Again
         </button>
       </div>
-    )}
+      );
+    }}
   >
     <ErrorBoundary>
       <App />

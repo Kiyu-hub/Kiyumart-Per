@@ -1127,8 +1127,9 @@ export default function AdminDashboardConnected() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-3 pb-28 md:p-6">
-          <div className="max-w-7xl mx-auto space-y-4 md:space-y-6">
+        <main className="flex-1 overflow-y-auto px-2 pt-2 pb-28 md:p-6">
+          {/* Phones: no extra side padding (a global mobile rule adds 16px to max-w-7xl), tighter gaps. */}
+          <div className="max-w-7xl mx-auto space-y-2.5 max-md:!px-0 md:space-y-6">
 
             {/* Maintenance Mode Control — Super Admin only */}
             {isSuperAdmin && (() => {

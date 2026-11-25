@@ -233,9 +233,9 @@ export default function AdminMobileOverview(props: AdminMobileOverviewProps) {
     .slice(0, 3);
 
   return (
-    <section className="space-y-3 md:hidden" data-admin-mobile-overview>
+    <section className="!mt-0 space-y-2.5 md:hidden" data-admin-mobile-overview>
       {/* Key numbers */}
-      <div className="grid auto-rows-fr grid-cols-2 gap-2.5">
+      <div className="grid auto-rows-fr grid-cols-2 gap-2">
         <StatCard accent="teal" icon={ShoppingBag} label="Total orders" value={totalOrders.toLocaleString("en-GH")} change={ordersChange} onClick={() => navigate("/admin/orders")} />
         <StatCard accent="green" icon={DollarSign} label="Platform revenue" value={typeof platformRevenue === "number" ? formatPrice(platformRevenue) : "…"} change={revenueChange} />
         <StatCard accent="amber" icon={UserCog} label="Active sellers" value={safeStores.length.toLocaleString("en-GH")} onClick={() => navigate("/admin/sellers")} />
