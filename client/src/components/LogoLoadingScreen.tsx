@@ -58,6 +58,22 @@ export default function LogoLoadingScreen({
   const shouldReduceMotion = useReducedMotion();
   const { isMobile } = useMobileDevice();
 
+  // Hooks must run in the same order on every render. These sit ABOVE the
+  // mobile early return so crossing the phone/desktop breakpoint (resizing,
+  // rotating a tablet) no longer crashes with "Rendered fewer hooks".
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setHasMinTimePassed(true);
+    }, minDisplayTime);
+    return () => clearTimeout(timer);
+  }, [minDisplayTime]);
+
+  useEffect(() => {
+    if (!isLoading && hasMinTimePassed) {
+      setShowLoader(false);
+    }
+  }, [isLoading, hasMinTimePassed]);
+
   // Mobile gets a minimal "icon + animated wordmark" splash. Desktop keeps
   // the full original animation (logo + rings + sparkles + script heading).
   if (isMobile) {
@@ -73,19 +89,6 @@ export default function LogoLoadingScreen({
       />
     );
   }
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setHasMinTimePassed(true);
-    }, minDisplayTime);
-    return () => clearTimeout(timer);
-  }, [minDisplayTime]);
-
-  useEffect(() => {
-    if (!isLoading && hasMinTimePassed) {
-      setShowLoader(false);
-    }
-  }, [isLoading, hasMinTimePassed]);
 
   const containerVariants = {
     hidden: { opacity: 0 },
