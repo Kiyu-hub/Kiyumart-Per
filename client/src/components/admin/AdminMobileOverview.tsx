@@ -11,7 +11,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchApiJson } from "@/lib/queryClient";
 import {
-  ShoppingCart, Wallet, Store, Tag, BarChart3, ClipboardList, UserCheck, CreditCard,
+  ShoppingBag, DollarSign, UserCog, Package, BarChart3, ClipboardList, UserCheck, CreditCard,
   Bike, ChevronRight, PieChart, Wrench,
 } from "lucide-react";
 
@@ -56,12 +56,14 @@ function Change({ value }: { value?: number }) {
   );
 }
 
-// One accent per card (owner request 2026-11-25): tinted card + coloured icon.
+// Owner-approved style "C2" (2026-11-25): neutral card with a coloured bar on
+// the left and a tinted icon. Icons match the desktop dashboard/sidebar.
+// Colours: brand teal, brand green, brand amber, neutral slate.
 const ACCENTS = {
-  teal:   { rgb: "0,150,136",  fg: "#009688" },
-  green:  { rgb: "30,123,95",  fg: "#1e7b5f" },
-  amber:  { rgb: "245,158,11", fg: "#D97706" },
-  indigo: { rgb: "99,102,241", fg: "#6366F1" },
+  teal:  { rgb: "0,150,136",  fg: "#009688" },
+  green: { rgb: "30,123,95",  fg: "#1e7b5f" },
+  amber: { rgb: "245,158,11", fg: "#D97706" },
+  slate: { rgb: "71,85,105",  fg: "#64748B" },
 } as const;
 type Accent = keyof typeof ACCENTS;
 
@@ -72,16 +74,17 @@ function StatCard({ icon: Icon, label, value, change, onClick, accent }: { icon:
       type="button"
       onClick={onClick}
       data-accent={accent}
-      className="flex min-w-0 items-start gap-2.5 rounded-2xl border p-3 text-left active:scale-[0.98] transition-transform"
-      style={{ minHeight: 0, background: `rgba(${a.rgb},.10)`, borderColor: `rgba(${a.rgb},.28)` }}
+      className="flex h-full min-w-0 items-start gap-2.5 rounded-2xl border border-l-4 bg-card p-3 text-left shadow-sm active:scale-[0.98] transition-transform"
+      style={{ minHeight: 0, borderLeftColor: a.fg }}
     >
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full max-[359px]:hidden" style={{ background: `rgba(${a.rgb},.18)`, color: a.fg }}>
-        <Icon className="h-4 w-4" />
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full max-[359px]:hidden" style={{ background: `rgba(${a.rgb},.14)`, color: a.fg }}>
+        <Icon className="h-[18px] w-[18px]" />
       </span>
       <span className="min-w-0">
         <span className="block whitespace-nowrap text-[11px] text-muted-foreground">{label}</span>
         <span className="block whitespace-nowrap text-[15px] font-bold tabular-nums leading-tight max-[359px]:text-sm">{value}</span>
-        <Change value={change} />
+        {/* Same height for every card: reserve the change-pill row even when there is no % */}
+        {typeof change === "number" && Number.isFinite(change) ? <Change value={change} /> : <span aria-hidden className="mt-1 block h-[18px]" />}
       </span>
     </button>
   );
@@ -232,11 +235,11 @@ export default function AdminMobileOverview(props: AdminMobileOverviewProps) {
   return (
     <section className="space-y-3 md:hidden" data-admin-mobile-overview>
       {/* Key numbers */}
-      <div className="grid grid-cols-2 gap-2.5">
-        <StatCard accent="teal" icon={ShoppingCart} label="Total orders" value={totalOrders.toLocaleString("en-GH")} change={ordersChange} onClick={() => navigate("/admin/orders")} />
-        <StatCard accent="green" icon={Wallet} label="Platform revenue" value={typeof platformRevenue === "number" ? formatPrice(platformRevenue) : "…"} change={revenueChange} />
-        <StatCard accent="amber" icon={Store} label="Active sellers" value={safeStores.length.toLocaleString("en-GH")} onClick={() => navigate("/admin/sellers")} />
-        <StatCard accent="indigo" icon={Tag} label="Total products" value={safeProducts.length.toLocaleString("en-GH")} onClick={() => navigate("/admin/products")} />
+      <div className="grid auto-rows-fr grid-cols-2 gap-2.5">
+        <StatCard accent="teal" icon={ShoppingBag} label="Total orders" value={totalOrders.toLocaleString("en-GH")} change={ordersChange} onClick={() => navigate("/admin/orders")} />
+        <StatCard accent="green" icon={DollarSign} label="Platform revenue" value={typeof platformRevenue === "number" ? formatPrice(platformRevenue) : "…"} change={revenueChange} />
+        <StatCard accent="amber" icon={UserCog} label="Active sellers" value={safeStores.length.toLocaleString("en-GH")} onClick={() => navigate("/admin/sellers")} />
+        <StatCard accent="slate" icon={Package} label="Total products" value={safeProducts.length.toLocaleString("en-GH")} onClick={() => navigate("/admin/products")} />
       </div>
 
       {/* Sales overview */}
