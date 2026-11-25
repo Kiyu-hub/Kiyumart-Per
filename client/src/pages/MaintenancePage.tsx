@@ -217,7 +217,9 @@ export default function MaintenancePage() {
   const scheduledEnd = status?.maintenanceScheduledEnd ?? null;
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden" style={{ background: "#050814" }}>
+    // Fixed full-screen layer so the shop's bottom bar (rendered outside the
+    // maintenance gate) can't sit on top of this page on phones.
+    <div className="fixed inset-0 z-[200] w-full overflow-y-auto overflow-x-hidden" style={{ background: "#050814" }}>
       <style>{STYLES}</style>
 
       {/* ══ Background image ══ */}
@@ -286,13 +288,11 @@ export default function MaintenancePage() {
           LAYOUT — 3-column grid: characters fill the sides, card centers
       ════════════════════════════════════════════════════════════════════ */}
       <div
-        className="relative min-h-screen"
-        style={{
-          zIndex: 10,
-          display: "grid",
-          gridTemplateColumns: "1fr minmax(0, 440px) 1fr",
-          gridTemplateRows: "1fr",
-        }}
+        // Phones/tablets: one column (the side characters are hidden below lg, and a
+        // 3-column grid then pushed the card into a narrow first column).
+        // Desktop (lg+): characters | card | characters.
+        className="relative min-h-[calc(100dvh-150px)] lg:min-h-[100dvh] grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,440px)_1fr]"
+        style={{ zIndex: 10, gridTemplateRows: "1fr" }}
       >
 
         {/* ── LEFT CHARACTER ── */}
@@ -315,7 +315,10 @@ export default function MaintenancePage() {
         </div>
 
         {/* ── CENTER: logo + card ── */}
-        <div className="flex flex-col items-center justify-center px-4 py-10">
+        <div
+          className="mx-auto flex w-full max-w-[440px] flex-col items-center justify-center px-4 py-10"
+          style={{ paddingTop: "max(2.5rem, env(safe-area-inset-top, 0px))" }}
+        >
 
           {/* Logo */}
           <div className="mnt-f1 mb-6">
@@ -439,7 +442,10 @@ export default function MaintenancePage() {
       </div>
 
       {/* ══ Mobile characters (shown below card on small screens) ══ */}
-      <div className="lg:hidden relative z-10 flex justify-between items-end px-2 pb-2 -mt-10">
+      <div
+        className="lg:hidden relative z-10 flex justify-between items-end px-2 -mt-10"
+        style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0px))" }}
+      >
         <img src={guyLeft} alt="" aria-hidden className="w-28 xs:w-36 object-contain object-bottom"
           style={{ filter: "drop-shadow(0 10px 20px rgba(0,0,0,0.6))" }} />
         <img src={guyRight} alt="" aria-hidden className="w-32 xs:w-40 object-contain object-bottom"
