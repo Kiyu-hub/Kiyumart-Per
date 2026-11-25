@@ -4431,6 +4431,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         applicationStatus: "approved", // Auto-approve manually created users
       };
 
+      // The create form always sends deliveryZoneId; for sellers/buyers it is an
+      // empty string, which the users→delivery_zones foreign key rejects.
+      // Treat a blank zone as "no zone".
+      if (typeof userData.deliveryZoneId !== "string" || !userData.deliveryZoneId.trim()) {
+        userData.deliveryZoneId = null;
+      }
+
       // Handle rider-specific fields - validate and coerce into vehicleInfo JSONB
       if (validatedData.role === "rider") {
         const normalizedRiderCity = typeof req.body.riderCity === "string" ? req.body.riderCity.trim() : "";
@@ -4635,6 +4642,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (req.body[field] !== undefined) {
           updateData[field] = req.body[field];
         }
+      }
+
+      // A blank zone from the form means "no zone" (an empty string breaks the FK).
+      if ("deliveryZoneId" in updateData && (typeof updateData.deliveryZoneId !== "string" || !updateData.deliveryZoneId.trim())) {
+        updateData.deliveryZoneId = null;
       }
 
       if (Object.keys(updateData).length === 0) {
