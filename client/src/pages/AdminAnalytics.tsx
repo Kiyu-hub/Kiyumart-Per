@@ -424,7 +424,7 @@ export default function AdminAnalytics() {
     refetchOnWindowFocus: false,
   });
 
-  const userQuery = (roleName: string, enabled = true) => useQuery<LiteUser[]>({
+  const useUsersByRole = (roleName: string, enabled = true) => useQuery<LiteUser[]>({
     queryKey: ["/api/users", roleName, "analytics"],
     queryFn: async () => {
       const r = await fetch(`/api/users?role=${roleName}`, { credentials: "include" });
@@ -435,13 +435,13 @@ export default function AdminAnalytics() {
     enabled: isAuthenticated && canView && enabled,
   });
 
-  const ridersQuery = userQuery("rider", showInternalRiderFeatures);
-  const sellersQuery = userQuery("seller");
-  const buyersQuery = userQuery("buyer");
-  const agentsQuery = userQuery("agent");
-  const pickupAgentsQuery = userQuery("pickup_agent");
-  const adminsQuery = userQuery("admin");
-  const superAdminsQuery = userQuery("super_admin");
+  const ridersQuery = useUsersByRole("rider", showInternalRiderFeatures);
+  const sellersQuery = useUsersByRole("seller");
+  const buyersQuery = useUsersByRole("buyer");
+  const agentsQuery = useUsersByRole("agent");
+  const pickupAgentsQuery = useUsersByRole("pickup_agent");
+  const adminsQuery = useUsersByRole("admin");
+  const superAdminsQuery = useUsersByRole("super_admin");
   const riders = showInternalRiderFeatures ? (ridersQuery.data || []) : [];
   const sellers = sellersQuery.data || [];
   const buyers = buyersQuery.data || [];

@@ -4,10 +4,10 @@
   "type": "module",
   "license": "MIT",
   "scripts": {
-    "build": "vite build && npx esbuild server/index.ts --bundle --platform=node --format=esm --outfile=dist/server.mjs --packages=external",
+    "build": "npm run lint:hooks && vite build && npx esbuild server/index.ts --bundle --platform=node --format=esm --outfile=dist/server.mjs --packages=external",
     "start": "node dist/server.mjs",
     "dev:backend": "scripts\\dev-backend-safe.cmd",
-    "build:frontend": "node ./node_modules/vite/bin/vite.js build",
+    "build:frontend": "npm run lint:hooks && node ./node_modules/vite/bin/vite.js build",
     "dev:frontend": "scripts\\dev-frontend-safe.cmd",
     "stop:stack": "scripts\\stop-stack-safe.cmd",
     "start:stack": "Start KiyuMart.cmd",
@@ -22,7 +22,8 @@
     "typecheck": "scripts\\typecheck-safe.cmd",
     "test:finance": "scripts\\run-tsx-safe.cmd scripts/verify-platform-earnings.ts",
     "seed:dev": "scripts\\run-tsx-safe.cmd scripts/seed-dev-data.ts",
-    "wipe:dev": "scripts\\run-tsx-safe.cmd scripts/wipe-dev-data.ts"
+    "wipe:dev": "scripts\\run-tsx-safe.cmd scripts/wipe-dev-data.ts",
+    "lint:hooks": "eslint --no-eslintrc -c .eslintrc.hooks.json --ext .ts,.tsx --no-inline-config client/src"
   },
   "dependencies": {
     "@google/model-viewer": "^4.2.0",
@@ -153,10 +154,13 @@
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@types/ws": "^8.5.13",
+    "@typescript-eslint/parser": "^7.18.0",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.20",
     "drizzle-kit": "^0.31.4",
     "esbuild": "^0.25.0",
+    "eslint": "^8.57.0",
+    "eslint-plugin-react-hooks": "^4.6.2",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.20.5",

@@ -9,6 +9,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
 import { Loader2, SearchX, Sparkles, ArrowLeft, X } from "lucide-react";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
 
 interface WishlistItem { id: string; userId: string; productId: string; }
 
@@ -606,18 +607,28 @@ function MobileSearchPage({ initialQuery: initialQueryProp, onNavigate }: { init
 // ═════════════════════════════════════════════════════════════════════════════
 export default function SearchPage() {
   const [location, navigate] = useLocation();
+  const { isMobile } = useMobileDevice();
+  const params = new URLSearchParams(location.split("?")[1] || "");
+  const searchQuery = params.get("q") || "";
+  // Re-evaluated on resize/rotation (window.innerWidth alone was read once).
+  const isMobileView = params.get("mobile") === "1" || isMobile;
+
+  // On mobile, show the dedicated mobile search page. Choosing the view in this
+  // thin wrapper keeps each view's hooks stable across rotation/resizing.
+  if (isMobileView) {
+    return <MobileSearchPage initialQuery={searchQuery} onNavigate={navigate} />;
+  }
+  return <SearchPageDesktop />;
+}
+
+function SearchPageDesktop() {
+  const [location, navigate] = useLocation();
   const { currencySymbol } = useLanguage();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const { toast } = useToast();
 
   const params = new URLSearchParams(location.split("?")[1] || "");
   const searchQuery = params.get("q") || "";
-  const isMobileView = params.get("mobile") === "1" || (typeof window !== "undefined" && window.innerWidth < 768);
-
-  // On mobile, show the dedicated mobile search page
-  if (isMobileView) {
-    return <MobileSearchPage initialQuery={searchQuery} onNavigate={navigate} />;
-  }
 
   // Desktop: redirect to home if no query
   useEffect(() => {

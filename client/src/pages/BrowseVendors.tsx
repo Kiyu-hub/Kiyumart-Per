@@ -55,12 +55,9 @@ interface Store {
 
 export default function BrowseVendors() {
   const { isMobile } = useMobileDevice();
-  const [, navigate] = useLocation();
-  const { isAuthenticated } = useAuth();
-  const [search, setSearch] = useState("");
-  const [tab, setTab] = useState<Tab>("all");
-
-  // Mobile users see the native mobile experience for this page.
+  // Mobile users see the native mobile experience for this page. Choosing the
+  // view in this thin wrapper keeps each view's hooks stable when the device
+  // is rotated or resized across the phone/desktop width.
   if (isMobile) {
     return (
       <Suspense fallback={<div className="p-6">Loading…</div>}>
@@ -68,6 +65,14 @@ export default function BrowseVendors() {
       </Suspense>
     );
   }
+  return <BrowseVendorsDesktop />;
+}
+
+function BrowseVendorsDesktop() {
+  const [, navigate] = useLocation();
+  const { isAuthenticated } = useAuth();
+  const [search, setSearch] = useState("");
+  const [tab, setTab] = useState<Tab>("all");
 
   const { data: stores = [], isLoading: storesLoading } = useQuery<Store[]>({
     queryKey: ["/api/stores", "active-approved", "vendors-page"],

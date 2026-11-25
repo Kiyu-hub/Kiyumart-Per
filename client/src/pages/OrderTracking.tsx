@@ -79,12 +79,14 @@ interface OrderItem {
   image?: string | null;
 }
 
+/**
+ * Chooses between the Bolt-style food tracker and the standard tracker. The
+ * choice lives in this thin wrapper so each tracker always runs the same hooks
+ * in the same order — previously the early return sat in the middle of the
+ * hooks, which crashed the page when a phone was rotated or resized.
+ */
 export default function OrderTracking() {
-  const [location, navigate] = useLocation();
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
-  const { toast } = useToast();
-  const { formatPrice } = useLanguage();
-  const { isExternalRiderSystemEnabled } = usePlatformSettings();
+  const [location] = useLocation();
   const pathname = useMemo(() => location.split("?")[0] || "", [location]);
   const searchParams = useMemo(() => new URLSearchParams(location.split("?")[1] || ""), [location]);
   const orderPathMatch = useMemo(() => pathname.match(/^\/orders\/([^/?#]+)/), [pathname]);
@@ -94,10 +96,7 @@ export default function OrderTracking() {
     : trackPathMatch?.[1]
       ? decodeURIComponent(trackPathMatch[1])
       : searchParams.get("orderId");
-  const isDirectOrderDetailsRoute = Boolean(orderPathMatch?.[1]);
-  const isExplicitTrackingRoute = Boolean(trackPathMatch?.[1]);
   const isSingleOrderMode = Boolean(requestedOrderId);
-  const isOrderDetailsMode = isSingleOrderMode;
 
   // Bolt-style mobile tracker: when this is a single-order view, the device is
   // mobile, and the order came from a food vendor / restaurant, defer to the
@@ -134,6 +133,29 @@ export default function OrderTracking() {
       </React.Suspense>
     );
   }
+  return <OrderTrackingMain />;
+}
+
+function OrderTrackingMain() {
+  const [location, navigate] = useLocation();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { toast } = useToast();
+  const { formatPrice } = useLanguage();
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
+  const pathname = useMemo(() => location.split("?")[0] || "", [location]);
+  const searchParams = useMemo(() => new URLSearchParams(location.split("?")[1] || ""), [location]);
+  const orderPathMatch = useMemo(() => pathname.match(/^\/orders\/([^/?#]+)/), [pathname]);
+  const trackPathMatch = useMemo(() => pathname.match(/^\/track\/([^/?#]+)/), [pathname]);
+  const requestedOrderId = orderPathMatch?.[1]
+    ? decodeURIComponent(orderPathMatch[1])
+    : trackPathMatch?.[1]
+      ? decodeURIComponent(trackPathMatch[1])
+      : searchParams.get("orderId");
+  const isDirectOrderDetailsRoute = Boolean(orderPathMatch?.[1]);
+  const isExplicitTrackingRoute = Boolean(trackPathMatch?.[1]);
+  const isSingleOrderMode = Boolean(requestedOrderId);
+  const isOrderDetailsMode = isSingleOrderMode;
+
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [riderLocations, setRiderLocations] = useState<Map<string, RiderLocation>>(new Map());

@@ -190,14 +190,47 @@ function safeNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+/**
+ * Auth gate. Loading/redirect states are decided here so the dashboard below
+ * always runs the same hooks in the same order (React requires this; an early
+ * return part-way through the hooks crashed the page with "Rendered more/fewer
+ * hooks" — e.g. when auth finished loading or the phone was rotated).
+ */
 export default function SellerDashboardConnected() {
+  const [, navigate] = useLocation();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+
+  useEffect(() => {
+    if (!authLoading && (!isAuthenticated || user?.role !== "seller")) {
+      navigate("/");
+    }
+  }, [isAuthenticated, authLoading, user, navigate]);
+
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && user?.role === "seller" && user?.isActive === false) {
+      navigate("/seller/messages");
+    }
+  }, [authLoading, isAuthenticated, navigate, user]);
+
+  if (authLoading || !isAuthenticated || user?.role !== "seller") {
+    return <PageLoadingState title="Loading seller dashboard" description="Preparing your store performance, orders, and tools." />;
+  }
+  if (user?.isActive === false) {
+    return <PageLoadingState title="Checking seller access" description="Confirming your store status and dashboard availability." />;
+  }
+  return <SellerDashboardContent />;
+}
+
+function SellerDashboardContent() {
   useDashboardChrome();
   const [activeItem, setActiveItem] = useState("dashboard");
   // Phones: the sidebar opens as a slide-in menu (same pattern as DashboardLayout).
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [lastGoodRecentOrders, setLastGoodRecentOrders] = useState<Order[]>([]);
   const [location, navigate] = useLocation();
-  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { user: authUser, isAuthenticated } = useAuth();
+  // Only rendered by the auth gate above once a signed-in, active seller exists.
+  const user = authUser as NonNullable<typeof authUser>;
   const { formatPrice } = useLanguage();
   const { toast } = useToast();
   const { isExternalRiderSystemEnabled } = usePlatformSettings();
@@ -216,17 +249,6 @@ export default function SellerDashboardConnected() {
   const [lastGoodMetrics, setLastGoodMetrics] = useState<SellerDashboardMetricSnapshot | null>(null);
   const metricsStorageKey = user?.id ? `seller-dashboard-metrics:${user.id}` : null;
 
-  useEffect(() => {
-    if (!authLoading && (!isAuthenticated || user?.role !== "seller")) {
-      navigate("/");
-    }
-  }, [isAuthenticated, authLoading, user, navigate]);
-
-  useEffect(() => {
-    if (!authLoading && isAuthenticated && user?.role === "seller" && user?.isActive === false) {
-      navigate("/seller/messages");
-    }
-  }, [authLoading, isAuthenticated, navigate, user]);
 
   useEffect(() => {
     // Update activeItem based on current route
@@ -663,13 +685,7 @@ export default function SellerDashboardConnected() {
     form.reset();
   };
 
-  if (authLoading || !isAuthenticated || user?.role !== "seller") {
-    return <PageLoadingState title="Loading seller dashboard" description="Preparing your store performance, orders, and tools." />;
-  }
-
-  if (user?.isActive === false) {
-    return <PageLoadingState title="Checking seller access" description="Confirming your store status and dashboard availability." />;
-  }
+  // (Auth/loading gate lives in SellerDashboardConnected so hooks never change order.)
 
   const handleUpgrade = () => setShowUpgradeModal(true);
 
