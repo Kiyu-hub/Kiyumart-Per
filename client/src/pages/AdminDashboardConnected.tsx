@@ -7,7 +7,9 @@ import DashboardSidebar from "@/components/DashboardSidebar";
 import MetricCard from "@/components/MetricCard";
 import TrackingMetricsPanel from "@/components/TrackingMetricsPanel";
 import ThemeToggle from "@/components/ThemeToggle";
-import { DollarSign, ShoppingBag, Users, Truck, Loader2, UserCog, Ticket, Wallet, CheckCircle, XCircle, ExternalLink, MessageCircle, MapPin, AlertTriangle, Wrench, PowerOff, Clock, ShieldAlert, RefreshCw, CalendarDays, ChevronDown } from "lucide-react";
+import AdminMobileOverview from "@/components/admin/AdminMobileOverview";
+import NotificationPopover from "@/components/NotificationPopover";
+import { DollarSign, ShoppingBag, Users, Truck, Loader2, UserCog, Ticket, Wallet, CheckCircle, XCircle, ExternalLink, MessageCircle, MapPin, AlertTriangle, Wrench, PowerOff, Clock, ShieldAlert, RefreshCw, CalendarDays, ChevronDown, Menu, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -243,6 +245,9 @@ function CollapsibleDashboardSection({
 
 export default function AdminDashboardConnected() {
   const [activeItem, setActiveItem] = useState("dashboard");
+  // Mobile (<768px): sidebar becomes a slide-in menu; maintenance card collapses to one line.
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [maintenanceExpanded, setMaintenanceExpanded] = useState(false);
   const [location, navigate] = useLocation();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const normalizedRole = (() => {
@@ -1023,15 +1028,94 @@ export default function AdminDashboardConnected() {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
-      <DashboardSidebar
-        role={isSuperAdmin ? "super_admin" : "admin"}
-        activeItem={activeItem}
-        onItemClick={handleItemClick}
-        userName={user?.name || "Admin"}
-      />
+      <div className="hidden md:flex">
+        <DashboardSidebar
+          role={isSuperAdmin ? "super_admin" : "admin"}
+          activeItem={activeItem}
+          onItemClick={handleItemClick}
+          userName={user?.name || "Admin"}
+        />
+      </div>
 
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="border-b p-4 flex items-center justify-between">
+      {/* Mobile: same sidebar as a slide-in menu (same pattern as DashboardLayout) */}
+      {isMobileMenuOpen && (
+        <>
+          <div className="mobile-sidebar-overlay md:hidden" onClick={() => setIsMobileMenuOpen(false)} aria-hidden="true" />
+          <div className="mobile-sidebar-panel md:hidden bg-card shadow-2xl">
+            <button
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="absolute top-4 right-3 z-10 p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              aria-label="Close menu"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <DashboardSidebar
+              role={isSuperAdmin ? "super_admin" : "admin"}
+              activeItem={activeItem}
+              onItemClick={(id) => { setIsMobileMenuOpen(false); handleItemClick(id); }}
+              userName={user?.name || "Admin"}
+            />
+          </div>
+        </>
+      )}
+
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Mobile top bar (owner-approved "S2"): menu, dashboard type + date, bell; kente thread underneath. */}
+        <div className="md:hidden bg-card" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
+          <header className="flex items-center gap-1 py-2 pl-1 pr-2">
+            <button
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="grid h-11 w-11 place-items-center rounded-lg hover:bg-muted"
+              aria-label="Open admin menu"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <div className="min-w-0 flex-1 leading-tight">
+              <p className="truncate text-[17px] font-bold" data-testid="text-dashboard-title-mobile">
+                {isSuperAdmin ? "Super Admin" : "Admin"} Dashboard
+              </p>
+              <p className="truncate text-[11.5px] text-muted-foreground">
+                {new Date().toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" })}
+              </p>
+            </div>
+            <NotificationPopover />
+          </header>
+          <div
+            aria-hidden
+            className="h-1"
+            style={{ backgroundImage: "repeating-linear-gradient(90deg,#F59E0B 0 10px,#1e7b5f 10px 22px,#ffffff 22px 24px,#009688 24px 38px,#111111 38px 40px,#00897B 40px 54px)" }}
+          />
+          {/* M3 (owner-approved 2026-11-25): soft one-line strip, only while maintenance is on (Super Admin). */}
+          {isSuperAdmin && maintenanceStatus?.isMaintenanceMode && (() => {
+            const end = maintenanceStatus?.maintenanceScheduledEnd ? new Date(maintenanceStatus.maintenanceScheduledEnd) : null;
+            const endLabel = end && !Number.isNaN(end.getTime())
+              ? end.toLocaleString("en-GB", end.toDateString() === new Date().toDateString()
+                  ? { hour: "2-digit", minute: "2-digit" }
+                  : { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+              : null;
+            return (
+              <button
+                type="button"
+                onClick={() => {
+                  setMaintenanceExpanded((v) => !v);
+                  document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+                aria-expanded={maintenanceExpanded}
+                className="flex w-full items-center gap-2 whitespace-nowrap border-b border-red-500/25 bg-red-500/10 px-4 py-2 text-left text-xs text-red-600 dark:bg-red-500/15 dark:text-red-400"
+                style={{ minHeight: 0 }}
+              >
+                <span className="h-2 w-2 shrink-0 rounded-full bg-red-500 motion-safe:animate-pulse" />
+                <b>Maintenance on</b>
+                <span className="min-w-0 truncate">
+                  {maintenanceStatus?.isAutoMaintenance ? "· lifts automatically" : endLabel ? `· ends ${endLabel}` : ""}
+                </span>
+                <span className="ml-auto font-bold">{maintenanceExpanded ? "Hide" : "Manage ›"}</span>
+              </button>
+            );
+          })()}
+        </div>
+
+        <header className="hidden md:flex border-b p-4 items-center justify-between">
           <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">
             {isSuperAdmin ? "Super Admin" : "Admin"} Dashboard
           </h1>
@@ -1043,8 +1127,8 @@ export default function AdminDashboardConnected() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-7xl mx-auto space-y-6">
+        <main className="flex-1 overflow-y-auto p-3 pb-28 md:p-6">
+          <div className="max-w-7xl mx-auto space-y-4 md:space-y-6">
 
             {/* Maintenance Mode Control — Super Admin only */}
             {isSuperAdmin && (() => {
@@ -1059,7 +1143,8 @@ export default function AdminDashboardConnected() {
               const currentMsg   = maintenanceStatus?.maintenanceMessage ?? null;
 
               return (
-                <Card className={`border-2 transition-colors ${
+                <>
+                <Card className={`border-2 transition-colors ${maintenanceExpanded ? "" : "hidden md:block"} ${
                   isActive
                     ? "border-destructive/60 bg-destructive/5 dark:bg-destructive/8"
                     : "border-primary/20 bg-card"
@@ -1282,8 +1367,29 @@ export default function AdminDashboardConnected() {
                     )}
                   </CardContent>
                 </Card>
+                </>
               );
             })()}
+
+            {/* Mobile overview (phones only; approved 2026-11-25). Desktop sections below are unchanged. */}
+            <AdminMobileOverview
+              userName={user?.name || "Admin"}
+              totalOrders={totalOrdersValue}
+              platformRevenue={typeof totalRevenueValue === "number" ? totalRevenueValue : undefined}
+              ordersChange={(metricChanges as any).totalOrders}
+              revenueChange={(metricChanges as any).platformRevenue}
+              orders={orders as any}
+              pendingApplications={pendingApplicationsCount}
+              sellerPaymentAlerts={sellerPaymentAlerts.length}
+              pendingAssignments={pendingAssignmentsCount}
+              showRiderItems={!isExternalRiderSystemEnabled}
+              onOpenMaintenance={isSuperAdmin && !maintenanceStatus?.isMaintenanceMode ? () => {
+                setMaintenanceExpanded(true);
+                document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
+              } : undefined}
+              formatPrice={formatPrice}
+              navigate={navigate}
+            />
 
             {isSuperAdmin && (
               shouldBlockMetrics ? (
@@ -1302,7 +1408,7 @@ export default function AdminDashboardConnected() {
                       <span>Live analytics are still syncing. Showing dashboard totals now.</span>
                     </div>
                   ) : null}
-                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3">
+                <div className="hidden md:grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3">
                   <MetricCard
                     title="Platform Revenue"
                     value={typeof totalRevenueValue === "number" ? formatPrice(totalRevenueValue) : "..." }
