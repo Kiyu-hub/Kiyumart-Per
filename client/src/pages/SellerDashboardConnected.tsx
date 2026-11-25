@@ -969,11 +969,8 @@ export default function SellerDashboardConnected() {
         </>
       )}
 
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-        <header
-          className="border-b px-3 py-2.5 md:p-4 flex items-center justify-between gap-2"
-          style={{ paddingTop: "max(10px, env(safe-area-inset-top, 0px))" }}
-        >
+      <div className="flex-1 flex flex-col overflow-hidden max-md:min-w-0">
+        <header className="border-b p-4 flex items-center justify-between max-md:gap-2 max-md:px-3 max-md:pb-2.5 max-md:pt-[max(10px,env(safe-area-inset-top,0px))]">
           <button
             onClick={() => setIsMobileMenuOpen(true)}
             className="md:hidden -ml-1 grid h-10 w-10 shrink-0 place-items-center rounded-lg text-muted-foreground hover:bg-muted"
@@ -981,8 +978,8 @@ export default function SellerDashboardConnected() {
           >
             <Menu className="h-5 w-5" />
           </button>
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1" data-testid="text-dashboard-title">
-            <h1 className="truncate text-lg font-bold md:text-2xl">
+          <div className="flex items-center gap-2.5 max-md:min-w-0 max-md:flex-1 max-md:flex-wrap max-md:gap-y-1" data-testid="text-dashboard-title">
+            <h1 className="text-2xl font-bold max-md:truncate max-md:text-lg">
               {activeItem === "coupons" ? "Coupon Management" : activeItem === "reviews" ? "Ratings & Reviews" : "Seller Dashboard"}
             </h1>
             {tierInfo && (() => {
@@ -1022,7 +1019,7 @@ export default function SellerDashboardConnected() {
               return null;
             })()}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex items-center gap-2 max-md:shrink-0">
             <ThemeToggle />
             <Button variant="outline" onClick={() => navigate("/")} data-testid="button-shop" className="hidden sm:inline-flex">
               Shop
@@ -1030,8 +1027,8 @@ export default function SellerDashboardConnected() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto px-2 pt-3 pb-28 md:p-6">
-          <div className="max-w-7xl mx-auto space-y-4 max-md:!px-0 md:space-y-6">
+        <main className="flex-1 overflow-y-auto p-6 max-md:px-2 max-md:pt-3 max-md:pb-28">
+          <div className="max-w-7xl mx-auto space-y-6 max-md:!px-0 max-md:space-y-4">
             {store && !hasCompletePayoutSetup && (
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
                 <div className="flex items-start gap-3">

@@ -219,7 +219,7 @@ export default function MaintenancePage() {
   return (
     // Fixed full-screen layer so the shop's bottom bar (rendered outside the
     // maintenance gate) can't sit on top of this page on phones.
-    <div className="fixed inset-0 z-[200] w-full overflow-y-auto overflow-x-hidden" style={{ background: "#050814" }}>
+    <div className="relative min-h-screen w-full overflow-hidden max-lg:fixed max-lg:inset-0 max-lg:z-[200] max-lg:min-h-0 max-lg:overflow-y-auto max-lg:overflow-x-hidden" style={{ background: "#050814" }}>
       <style>{STYLES}</style>
 
       {/* ══ Background image ══ */}
@@ -291,7 +291,7 @@ export default function MaintenancePage() {
         // Phones/tablets: one column (the side characters are hidden below lg, and a
         // 3-column grid then pushed the card into a narrow first column).
         // Desktop (lg+): characters | card | characters.
-        className="relative min-h-[calc(100dvh-150px)] lg:min-h-[100dvh] grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,440px)_1fr]"
+        className="relative min-h-screen grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,440px)_1fr] max-lg:min-h-[calc(100dvh-150px)]"
         style={{ zIndex: 10, gridTemplateRows: "1fr" }}
       >
 
@@ -316,8 +316,7 @@ export default function MaintenancePage() {
 
         {/* ── CENTER: logo + card ── */}
         <div
-          className="mx-auto flex w-full max-w-[440px] flex-col items-center justify-center px-4 py-10"
-          style={{ paddingTop: "max(2.5rem, env(safe-area-inset-top, 0px))" }}
+          className="flex flex-col items-center justify-center px-4 py-10 max-lg:mx-auto max-lg:w-full max-lg:max-w-[440px] max-lg:pt-[max(2.5rem,env(safe-area-inset-top,0px))]"
         >
 
           {/* Logo */}

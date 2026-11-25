@@ -234,8 +234,8 @@ export default function RiderEdit() {
         />
       </div>
       
-      <div className="flex-1 overflow-auto min-w-0">
-        <div className="p-3 pb-28 md:p-8">
+      <div className="flex-1 overflow-auto max-md:min-w-0">
+        <div className="p-8 max-md:p-3 max-md:pb-28">
           <div className="flex items-center gap-4 mb-6">
             <Button
               variant="ghost"
@@ -246,7 +246,7 @@ export default function RiderEdit() {
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div className="flex-1">
-              <h1 className="text-2xl md:text-3xl font-bold text-foreground" data-testid="heading-edit-rider">
+              <h1 className="text-3xl font-bold text-foreground max-md:text-2xl" data-testid="heading-edit-rider">
                 Edit Rider
               </h1>
               <p className="text-muted-foreground mt-1">Update rider information and vehicle details</p>

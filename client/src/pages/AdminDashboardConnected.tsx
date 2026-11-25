@@ -1059,7 +1059,7 @@ export default function AdminDashboardConnected() {
         </>
       )}
 
-      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+      <div className="flex-1 flex flex-col overflow-hidden max-md:min-w-0">
         {/* Mobile top bar (owner-approved "S2"): menu, dashboard type + date, bell; kente thread underneath. */}
         <div className="md:hidden bg-card" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
           <header className="flex items-center gap-1 py-2 pl-1 pr-2">
@@ -1127,9 +1127,9 @@ export default function AdminDashboardConnected() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-y-auto px-2 pt-2 pb-28 md:p-6">
+        <main className="flex-1 overflow-y-auto p-6 max-md:px-2 max-md:pt-2 max-md:pb-28">
           {/* Phones: no extra side padding (a global mobile rule adds 16px to max-w-7xl), tighter gaps. */}
-          <div className="max-w-7xl mx-auto space-y-2.5 max-md:!px-0 md:space-y-6">
+          <div className="max-w-7xl mx-auto space-y-6 max-md:!px-0 max-md:space-y-2.5">
 
             {/* Maintenance Mode Control — Super Admin only */}
             {isSuperAdmin && (() => {
