@@ -1,3 +1,4 @@
+import { goBack } from "@/lib/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
@@ -746,7 +747,7 @@ export default function SuperAdminPermissions() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => window.history.back()}
+                    onClick={() => goBack()}
                     data-testid="button-back"
                     className="h-9 w-9"
                   >

@@ -1,3 +1,4 @@
+import { canGoBackInApp, goBack } from "@/lib/navigation";
 import { useEffect, useState, useRef } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -1565,8 +1566,8 @@ export default function ProductDetails() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4">
           <button
             onClick={() => {
-              if (typeof window !== "undefined" && window.history.length > 1) {
-                window.history.back();
+              if (canGoBackInApp()) {
+                goBack();
                 return;
               }
 

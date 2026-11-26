@@ -26,9 +26,12 @@ export default defineConfig({
         // before it could take over, so phones kept showing the old version for
         // a minute or more. Page chunks and fonts are now cached the first time
         // they are used (see the "page-chunks" rule below); images as before.
-        globPatterns: ["index.html", "assets/index-*.{js,css}", "*.ico"],
-        navigateFallback: "/index.html",
-        navigateFallbackDenylist: [/^\/api/, /^\/socket\.io/],
+        // index.html is NOT precached: a precached start page outlives a release
+        // and points at code files that no longer exist ("Failed to fetch
+        // dynamically imported module"). Pages are fetched network-first instead
+        // (see "pages" below), with the cached copy used only when offline.
+        globPatterns: ["assets/index-*.{js,css}", "*.ico"],
+        navigateFallback: null,
         runtimeCaching: [
           {
             // All API calls: network first so online users always get fresh data.
@@ -43,6 +46,19 @@ export default defineConfig({
               networkTimeoutSeconds: 10,
               expiration: { maxEntries: 300, maxAgeSeconds: 60 * 60 * 24 },
               cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            // Every page navigation (any route): always ask the network first so a
+            // new release is picked up immediately; cached copy only when offline.
+            urlPattern: ({ request, url }: { request: Request; url: URL }) =>
+              request.mode === "navigate" && !url.pathname.startsWith("/api/"),
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "pages",
+              networkTimeoutSeconds: 4,
+              expiration: { maxEntries: 30, maxAgeSeconds: 60 * 60 * 24 * 7 },
+              cacheableResponse: { statuses: [200] },
             },
           },
           {
@@ -63,9 +79,20 @@ export default defineConfig({
               sameOrigin && url.pathname.startsWith("/assets/") && /\.(?:js|css|woff2?)$/.test(url.pathname),
             handler: "CacheFirst",
             options: {
-              cacheName: "page-chunks",
+              // v2: older caches could hold the start page saved under a code
+              // file's name (HTML served for a missing file), which breaks pages.
+              cacheName: "page-chunks-v2",
               expiration: { maxEntries: 400, maxAgeSeconds: 60 * 60 * 24 * 30 },
               cacheableResponse: { statuses: [200] },
+              plugins: [
+                {
+                  // Only keep real code, style and font files — never an HTML page.
+                  cacheWillUpdate: async ({ response }: { response: Response }) =>
+                    response && response.status === 200 && !/text\/html/i.test(response.headers.get("content-type") || "")
+                      ? response
+                      : null,
+                },
+              ],
             },
           },
           {

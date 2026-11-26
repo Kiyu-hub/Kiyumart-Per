@@ -1,4 +1,5 @@
-﻿import { useState, useEffect, useRef } from "react";
+﻿import { goBack } from "@/lib/navigation";
+import { useState, useEffect, useRef } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { fetchSameOriginJson, fetchSameOrigin, queryClient } from "@/lib/queryClient";
@@ -468,10 +469,9 @@ export default function MobileProductDetails() {
   };
 
   const handleBack = () => {
-    const from = sourceRef.current;
-    if (from) { navigate(from); return; }
-    if (typeof window !== 'undefined' && window.history.length > 1) window.history.back();
-    else navigate('/');
+    // Return to the page the shopper came from (keeps their scroll and filters).
+    // Only when the product was opened directly do we use the ?from= hint.
+    goBack(sourceRef.current || "/products");
   };
 
   // ── Loading / Error ───────────────────────────────────────

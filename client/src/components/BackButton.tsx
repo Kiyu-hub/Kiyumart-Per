@@ -1,3 +1,4 @@
+import { canGoBackInApp, goBack } from "@/lib/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -8,8 +9,8 @@ interface BackButtonProps {
 
 export default function BackButton({ fallbackRoute, label = "Back" }: BackButtonProps) {
   const handleBack = () => {
-    if (typeof window !== 'undefined' && window.history.length > 1) {
-      window.history.back();
+    if (canGoBackInApp()) {
+      goBack();
     } else {
       window.location.href = fallbackRoute;
     }

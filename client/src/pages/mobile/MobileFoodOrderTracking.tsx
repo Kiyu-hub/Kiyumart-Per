@@ -1,3 +1,4 @@
+import { goBack } from "@/lib/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -188,7 +189,7 @@ export default function MobileFoodOrderTracking() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <button
-            onClick={() => { if (typeof window !== 'undefined' && window.history.length > 1) window.history.back(); else navigate('/orders'); }}
+            onClick={() => { goBack('/orders'); }}
             style={{
               width: 36, height: 36, borderRadius: 18,
               background: bg, border: `1px solid ${bdr}`, cursor: 'pointer',

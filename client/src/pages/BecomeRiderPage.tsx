@@ -1,3 +1,4 @@
+import { goBack } from "@/lib/navigation";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
@@ -332,7 +333,7 @@ export default function BecomeRiderPage() {
       {/* Mobile sticky header */}
       <div className="sticky top-0 z-20 bg-background/95 backdrop-blur-sm border-b px-4 flex items-center gap-3" style={{ paddingTop: 'max(12px, env(safe-area-inset-top))', paddingBottom: '12px' }}>
         <button
-          onClick={() => navigate("/")}
+          onClick={() => goBack("/")}
           className="p-2 -ml-1 rounded-full hover:bg-muted transition-colors"
           data-testid="button-back"
           aria-label="Back"

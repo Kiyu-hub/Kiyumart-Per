@@ -1,3 +1,4 @@
+import { goBack } from "@/lib/navigation";
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
@@ -152,7 +153,7 @@ export default function AdminFoodProducts() {
     <DashboardLayout role={user?.role as any}>
       <div className="p-6 space-y-6">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => window.history.back()} data-testid="button-back">
+          <Button variant="ghost" size="icon" onClick={() => goBack()} data-testid="button-back">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">

@@ -1,3 +1,4 @@
+import { goBack } from "@/lib/navigation";
 import { useLocation } from "wouter";
 import { ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -43,7 +44,7 @@ export function MobilePageHeader({
           variant="ghost"
           size="icon"
           className="-ml-2 shrink-0 text-primary touch-ripple h-9 w-9"
-          onClick={onBack ?? (() => window.history.back())}
+          onClick={onBack ?? (() => goBack())}
           aria-label="Go back"
         >
           <ChevronLeft className="w-6 h-6 stroke-[2.5]" />

@@ -1,4 +1,5 @@
-﻿import { useState, useEffect, useRef } from "react";
+﻿import { goBack } from "@/lib/navigation";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -992,7 +993,7 @@ export default function AdminMessages() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => selectedUserId ? setSelectedUserId(null) : window.history.back()}
+                  onClick={() => selectedUserId ? setSelectedUserId(null) : goBack()}
                   data-testid="button-back"
                     className="md:hidden text-foreground/90 hover:bg-muted dark:hover:bg-white/10"
                 >
@@ -1001,7 +1002,7 @@ export default function AdminMessages() {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={() => window.history.back()}
+                  onClick={() => goBack()}
                   data-testid="button-back-desktop"
                   className="hidden md:flex text-foreground/90 hover:bg-muted dark:hover:bg-white/10"
                 >

@@ -1,3 +1,4 @@
+import { goBack } from "@/lib/navigation";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
@@ -253,7 +254,7 @@ export default function AdminFooterPagesManager() {
       <div className="p-4 md:p-8 space-y-6">
         {/* Header */}
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => window.history.back()} data-testid="button-back">
+          <Button variant="ghost" size="icon" onClick={() => goBack()} data-testid="button-back">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1">

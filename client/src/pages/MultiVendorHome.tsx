@@ -1,6 +1,7 @@
-import { useState, useCallback, lazy, Suspense } from "react";
+import { lazyWithRetry } from "@/lib/staleChunkReload";
+import { useState, useCallback, Suspense } from "react";
 import { useMobileDevice } from "@/hooks/useMobileDevice";
-const MobileHomeFashionComp = lazy(() => import("@/pages/mobile/MobileHomeFashion").then(m => ({ default: m.MobileHomeFashion })));
+const MobileHomeFashionComp = lazyWithRetry(() => import("@/pages/mobile/MobileHomeFashion").then(m => ({ default: m.MobileHomeFashion })));
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";

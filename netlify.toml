@@ -34,8 +34,39 @@
   status = 200
   force = true
 
+# A code file from an older release that no longer exists must answer 404, not
+# the start page (HTML served as JavaScript hides the problem). Existing files
+# are served normally because this rule is not forced.
+[[redirects]]
+  from = "/assets/*"
+  to = "/404.html"
+  status = 404
+
 # SPA fallback - all remaining routes go to index.html (MUST stay last)
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Release safety: the start page and service worker must never be served stale,
+# otherwise phones keep asking for code files from the previous release.
+# Code files under /assets/ have content-hashed names, so they can cache forever.
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache, must-revalidate"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache, must-revalidate"
+
+[[headers]]
+  for = "/workbox-*.js"
+  [headers.values]
+    Cache-Control = "no-cache, must-revalidate"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

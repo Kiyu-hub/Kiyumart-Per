@@ -1,7 +1,53 @@
 {
   "root": true,
   "parser": "@typescript-eslint/parser",
-  "parserOptions": { "ecmaVersion": 2022, "sourceType": "module", "ecmaFeatures": { "jsx": true } },
-  "plugins": ["react-hooks"],
-  "rules": { "react-hooks/rules-of-hooks": "error" }
+  "parserOptions": {
+    "ecmaVersion": 2022,
+    "sourceType": "module",
+    "ecmaFeatures": {
+      "jsx": true
+    }
+  },
+  "plugins": [
+    "react-hooks"
+  ],
+  "rules": {
+    "react-hooks/rules-of-hooks": "error",
+    "no-restricted-properties": [
+      "error",
+      {
+        "object": "history",
+        "property": "back",
+        "message": "Use goBack() from @/lib/navigation so Back never leaves KiyuMart or does nothing."
+      },
+      {
+        "property": "lazy",
+        "object": "React",
+        "message": "Use lazyWithRetry() from @/lib/staleChunkReload so pages recover after a release."
+      }
+    ],
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "MemberExpression[object.object.name='window'][object.property.name='history'][property.name='back']",
+        "message": "Use goBack() from @/lib/navigation."
+      },
+      {
+        "selector": "ImportDeclaration[source.value='react'] > ImportSpecifier[imported.name='lazy']",
+        "message": "Use lazyWithRetry() from @/lib/staleChunkReload so pages recover after a release."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": [
+        "client/src/lib/navigation.ts",
+        "client/src/lib/staleChunkReload.ts"
+      ],
+      "rules": {
+        "no-restricted-properties": "off",
+        "no-restricted-syntax": "off"
+      }
+    }
+  ]
 }

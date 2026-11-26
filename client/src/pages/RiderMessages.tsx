@@ -1,3 +1,4 @@
+import { canGoBackInApp, goBack } from "@/lib/navigation";
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -313,8 +314,8 @@ export default function RiderMessages() {
   };
 
   const handleBack = () => {
-    if (typeof window !== "undefined" && window.history.length > 1) {
-      window.history.back();
+    if (canGoBackInApp()) {
+      goBack();
       return;
     }
     navigate("/rider");

@@ -1,3 +1,4 @@
+import { goBack } from "@/lib/navigation";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -129,7 +130,7 @@ export default function AdminBannerManager() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => window.history.back()}
+              onClick={() => goBack()}
               data-testid="button-back"
             >
               <ArrowLeft className="h-5 w-5" />

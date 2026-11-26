@@ -1,4 +1,5 @@
-﻿import { useEffect, useState } from "react";
+﻿import { goBack } from "@/lib/navigation";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { getCategoryIcon, CAT_EMOJI } from "@/lib/categoryIcons";
@@ -49,12 +50,12 @@ export default function MobileAllCategories() {
       const res = await fetch('/api/categories');
       if (!res.ok) return [];
       const d = await res.json();
+      // Every active (approved) fashion category, in the admin's order — even
+      // ones with no products yet. The homepage rail shows only the first few.
       return Array.isArray(d)
-        ? d.filter((c: any) =>
-            c.isActive !== false &&
-            (c.productCount ?? 0) > 0 &&
-            !isFoodCategory(c as Category),
-          )
+        ? d
+            .filter((c: any) => c.isActive !== false && !isFoodCategory(c as Category))
+            .sort((a: any, b: any) => (Number(a.displayOrder) || 0) - (Number(b.displayOrder) || 0))
         : [];
     },
     staleTime: 60_000,
@@ -76,7 +77,7 @@ export default function MobileAllCategories() {
       }}>
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 36 }}>
           <button
-            onClick={() => { if (typeof window !== 'undefined' && window.history.length > 1) window.history.back(); else navigate('/'); }}
+            onClick={() => { goBack('/'); }}
             style={{
               position: 'absolute', left: 0,
               width: 32, height: 32, borderRadius: 12,
@@ -90,7 +91,7 @@ export default function MobileAllCategories() {
               <path d="m15 18-6-6 6-6" />
             </svg>
           </button>
-          <span style={{ fontSize: 16, fontWeight: 700, color: txt }}>All Category</span>
+          <span style={{ fontSize: 16, fontWeight: 700, color: txt }}>All categories</span>
         </div>
 
         <div style={{ marginTop: 10, background: inp, borderRadius: 12, position: 'relative', display: 'flex', alignItems: 'center' }}>

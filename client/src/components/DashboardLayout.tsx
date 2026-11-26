@@ -1,3 +1,4 @@
+import { canGoBackInApp, goBack } from "@/lib/navigation";
 import { ReactNode, useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import DashboardSidebar from "./DashboardSidebar";
@@ -282,8 +283,8 @@ export default function DashboardLayout({
     const basePath = roleBasePaths[normalizedRole];
 
     if (id === "__back__") {
-      if (typeof window !== "undefined" && window.history.length > 1) {
-        window.history.back();
+      if (canGoBackInApp()) {
+        goBack();
       } else {
         setLocation(basePath);
       }

@@ -1,3 +1,4 @@
+import { goBack } from "@/lib/navigation";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useLocation } from "wouter";
 import { navigateToBannerLink } from "@/lib/bannerNavigation";
@@ -349,7 +350,7 @@ export default function MobileAllVendors() {
         {/* Deliver-to row */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 16px 10px' }}>
           <button
-            onClick={() => { if (typeof window !== 'undefined' && window.history.length > 1) window.history.back(); else navigate('/'); }}
+            onClick={() => { goBack('/'); }}
             style={{
               width: 36, height: 36, borderRadius: 18,
               background: inp, border: 'none',

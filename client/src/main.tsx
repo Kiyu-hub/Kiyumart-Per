@@ -3,9 +3,11 @@ import * as Sentry from "@sentry/react";
 import App from "./App";
 import ErrorBoundary from "./components/ErrorBoundary";
 import registerServiceWorker from "./serviceWorkerRegistration";
-import { installStaleChunkReload, isStaleChunkError, reloadForStaleChunk } from "./lib/staleChunkReload";
+import { installNavigationTracker } from "./lib/navigation";
+import { installStaleChunkReload, isStaleChunkError, reloadForStaleChunk, hardRefresh } from "./lib/staleChunkReload";
 
 installStaleChunkReload();
+installNavigationTracker();
 import "./index.css";
 
 // Sentry — only initialises when VITE_SENTRY_DSN is set (production)
@@ -39,7 +41,15 @@ if (import.meta.env.VITE_SENTRY_DSN) {
 createRoot(document.getElementById("root")!).render(
   <Sentry.ErrorBoundary
     fallback={({ error, resetError }) => {
-      if (isStaleChunkError(error) && reloadForStaleChunk()) return <div style={{ padding: 32, textAlign: "center" }}>Updating KiyuMart…</div>;
+      if (isStaleChunkError(error)) {
+        if (reloadForStaleChunk()) return <div style={{ padding: 32, textAlign: "center" }}>Updating KiyuMart…</div>;
+        return (
+          <div style={{ padding: 32, textAlign: "center" }}>
+            <h2 style={{ marginBottom: 8 }}>KiyuMart has been updated</h2>
+            <button onClick={hardRefresh} style={{ padding: "10px 22px", background: "#009688", color: "#fff", border: "none", borderRadius: 999, cursor: "pointer" }}>Refresh</button>
+          </div>
+        );
+      }
       return (
       <div style={{ padding: 32, textAlign: "center" }}>
         <h2 style={{ marginBottom: 8 }}>Something went wrong</h2>

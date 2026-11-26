@@ -1,4 +1,5 @@
-﻿import { useEffect, useState } from "react";
+﻿import { goBack } from "@/lib/navigation";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useHaptic } from "@/hooks/useHaptic";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
@@ -246,7 +247,7 @@ export function MobileCart({
           display: 'flex', alignItems: 'center', gap: 12,
         }}>
           <button
-            onClick={() => { if (typeof window !== 'undefined' && window.history.length > 1) window.history.back(); else navigate('/'); }}
+            onClick={() => { goBack('/'); }}
             style={{ width: 36, height: 36, borderRadius: 11, background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', WebkitTapHighlightColor: 'transparent', flexShrink: 0 }}
           >
             <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke={txt} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
@@ -281,7 +282,7 @@ export function MobileCart({
         paddingTop: 'max(14px, env(safe-area-inset-top, 14px))',
       }}>
         <button
-          onClick={() => { if (typeof window !== 'undefined' && window.history.length > 1) window.history.back(); else navigate('/'); }}
+          onClick={() => { goBack('/'); }}
           style={{
             width: 36, height: 36, borderRadius: 11,
             background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.07)',

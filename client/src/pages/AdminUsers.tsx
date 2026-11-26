@@ -1,3 +1,4 @@
+import { goBack } from "@/lib/navigation";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
@@ -512,7 +513,7 @@ export default function AdminUsers() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => window.history.back()}
+              onClick={() => goBack()}
               data-testid="button-back"
             >
               <ArrowLeft className="h-5 w-5" />
