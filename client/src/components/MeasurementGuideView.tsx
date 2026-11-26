@@ -29,7 +29,7 @@ export function isMeasurementGuide(value: unknown): value is MeasurementGuideDat
  * the sizes you can buy plus the selected size, so tapping a size selects it
  * AND shows its measurements (no second "choose your size" row).
  */
-export default function MeasurementGuideView({ data, initialSize, sizes: buyableSizes, selectedSize, onSelectSize, onlySize, ink = "#181818", subtle = "#6D6A65", edge = "#E8E5DF", brand = "#009688" }: {
+export default function MeasurementGuideView({ data, initialSize, sizes: buyableSizes, selectedSize, onSelectSize, onlySize, gender, ink = "#181818", subtle = "#6D6A65", edge = "#E8E5DF", brand = "#009688" }: {
   data: MeasurementGuideData;
   initialSize?: string;
   /** Sizes the shopper can buy; when given with onSelectSize the buttons select the size. */
@@ -39,6 +39,8 @@ export default function MeasurementGuideView({ data, initialSize, sizes: buyable
   /** Show just this size (the one the shopper already picked); no size buttons. */
   onlySize?: string;
   ink?: string; subtle?: string; edge?: string; brand?: string;
+  /** The product's "Target gender" (Men / Women / Unisex…): picks the body figure. */
+  gender?: string | null;
 }) {
   const guide = MEASUREMENT_GUIDES[data.type];
   const measuredSizes = Object.keys(data.rows || {});
@@ -58,6 +60,14 @@ export default function MeasurementGuideView({ data, initialSize, sizes: buyable
   const hasRow = !!rowKey;
   const isShoes = guide.kind === "shoes";
   const body = data.body && BODY_GUIDES[data.body.guide] ? data.body : null;
+  // Body figure: the seller's chosen body chart, else from the product's target gender.
+  const g = String(gender || "").toLowerCase();
+  const bodyGuideId: "body-men" | "body-women" = body?.guide
+    ?? (/\b(men|man|male|boys?|gents?)\b/.test(g) && !/women|woman|female|ladies|girls?/.test(g) ? "body-men" : "body-women");
+  const bodyRow = body && rowKey ? body.rows[rowKey] : null;
+  const hasBodyValues = !!bodyRow && Object.values(bodyRow).some(Boolean);
+  // Worn on the body (not shoes, bags, scarves or baby clothes).
+  const showBody = !isShoes && !guide.oneSize && data.type !== "baby";
   const fitLabel = data.shoeFit === "small" ? "Runs small: consider a size up" : data.shoeFit === "large" ? "Runs large: consider a size down" : data.shoeFit === "true" ? "True to size" : null;
   const pill = (on: boolean): React.CSSProperties => ({
     minWidth: 48, height: 40, padding: "0 12px", borderRadius: 999, cursor: "pointer", fontWeight: on ? 800 : 600,
@@ -116,14 +126,24 @@ export default function MeasurementGuideView({ data, initialSize, sizes: buyable
       )}
       {fitLabel && <div style={{ fontSize: 13, fontWeight: 700, color: brand }}>{fitLabel}</div>}
 
-      {body && rowKey && body.rows[rowKey] && Object.values(body.rows[rowKey]).some(Boolean) && (
-        <div style={{ display: "flex", gap: 14, alignItems: "center", borderTop: `1px solid ${edge}`, paddingTop: 14 }}>
-          <img src={measurementPicture(body.guide)} alt="Body measurements" style={{ width: 60, height: 120, objectFit: "contain", background: "#fff", borderRadius: 8, flexShrink: 0 }} />
+      {showBody && (
+        <div style={{ display: "flex", gap: 16, alignItems: "center", borderTop: `1px solid ${edge}`, paddingTop: 16 }}>
+          <img src={measurementPicture(bodyGuideId)} alt={bodyGuideId === "body-men" ? "Men's body measurements" : "Women's body measurements"}
+            style={{ width: 96, height: 192, objectFit: "contain", background: "#fff", borderRadius: 12, border: `1px solid ${edge}`, flexShrink: 0, padding: 6 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: ink, marginBottom: 6 }}>Fits this body{!guide.oneSize && sizes.length > 1 ? ` (size ${size})` : ""}</div>
-            {BODY_GUIDES[body.guide].fields.map((f) => (
-              <div key={f.key} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0", color: subtle }}>
-                <span>{f.label}</span><strong style={{ color: ink }}>{toUnit(body.rows[rowKey]?.[f.key], data.unit || "cm", unit)}{body.rows[rowKey]?.[f.key] ? ` ${unit}` : ""}</strong>
+            <div style={{ fontSize: 14, fontWeight: 800, color: ink, marginBottom: 4 }}>
+              {hasBodyValues ? `Fits this body${!guide.oneSize && sizes.length > 1 && size ? ` (size ${size})` : ""}` : "Measure yourself"}
+            </div>
+            {!hasBodyValues && (
+              <div style={{ fontSize: 12, color: subtle, lineHeight: 1.5, marginBottom: 6 }}>
+                Measure over light clothing, tape snug but not tight, then compare with the sizes above.
+              </div>
+            )}
+            {BODY_GUIDES[bodyGuideId].fields.map((f, i) => (
+              <div key={f.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "4px 0", color: subtle }}>
+                <span aria-hidden="true" style={{ width: 18, height: 18, borderRadius: "50%", background: "#161616", color: "#fff", fontSize: 10, fontWeight: 800, display: "grid", placeItems: "center", flexShrink: 0 }}>{i + 1}</span>
+                <span style={{ flex: 1 }}>{f.label}</span>
+                {hasBodyValues && <strong style={{ color: ink }}>{toUnit(bodyRow?.[f.key], data.unit || "cm", unit)}{bodyRow?.[f.key] ? ` ${unit}` : ""}</strong>}
               </div>
             ))}
           </div>
