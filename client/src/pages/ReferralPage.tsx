@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useIsDark } from "@/lib/theme";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -253,6 +254,7 @@ function MobileReferralPage({ stats }: { stats?: ReferralStats }) {
 }
 
 export default function ReferralPage() {
+  const isDark = useIsDark();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [, navigate] = useLocation();
   const { referralEnabled } = usePlatformSettings();
@@ -284,12 +286,12 @@ export default function ReferralPage() {
   if (isMobile || isTablet) {
     if (!referralEnabled) {
       return (
-        <div style={{ minHeight: '100dvh', background: '#111', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, fontFamily: F, padding: 24 }}>
-          <svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth={1.5} strokeLinecap="round">
+        <div style={{ minHeight: '100dvh', background: isDark ? '#111' : '#F2F2F7', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, fontFamily: F, padding: 24 }}>
+          <svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)'} strokeWidth={1.5} strokeLinecap="round">
             <path d="M20 12v10H4V12"/><path d="M2 7h20v5H2z"/><path d="M12 22V7"/>
           </svg>
-          <p style={{ fontSize: 17, fontWeight: 700, color: '#fff', textAlign: 'center' }}>Referral Programme Not Active</p>
-          <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>This feature is not currently enabled.</p>
+          <p style={{ fontSize: 17, fontWeight: 700, color: isDark ? '#fff' : '#111', textAlign: 'center' }}>Referral Programme Not Active</p>
+          <p style={{ fontSize: 14, color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.45)', textAlign: 'center' }}>This feature is not currently enabled.</p>
         </div>
       );
     }

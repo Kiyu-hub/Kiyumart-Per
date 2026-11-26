@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useIsDark, toggleTheme as toggleAppTheme } from "@/lib/theme";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { fetchSameOrigin, fetchSameOriginJson } from "@/lib/queryClient";
@@ -38,7 +39,7 @@ export default function Settings() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const { toast } = useToast();
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const theme: "light" | "dark" = useIsDark() ? "dark" : "light";
   const [isExporting, setIsExporting] = useState(false);
   const [isPreparingPdf, setIsPreparingPdf] = useState(false);
   
@@ -54,11 +55,7 @@ export default function Settings() {
     });
   };
 
-  const toggleTheme = () => {
-    const newTheme = theme === "light" ? "dark" : "light";
-    setTheme(newTheme);
-    document.documentElement.classList.toggle("dark");
-  };
+  const toggleTheme = () => { toggleAppTheme(); };
 
   const handleDownloadData = async () => {
     try {

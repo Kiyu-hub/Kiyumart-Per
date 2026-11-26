@@ -4,10 +4,12 @@ import App from "./App";
 import ErrorBoundary from "./components/ErrorBoundary";
 import registerServiceWorker from "./serviceWorkerRegistration";
 import { installNavigationTracker } from "./lib/navigation";
+import { installThemeSync } from "./lib/theme";
 import { installStaleChunkReload, isStaleChunkError, reloadForStaleChunk, hardRefresh } from "./lib/staleChunkReload";
 
 installStaleChunkReload();
 installNavigationTracker();
+installThemeSync();
 import "./index.css";
 
 // Sentry — only initialises when VITE_SENTRY_DSN is set (production)

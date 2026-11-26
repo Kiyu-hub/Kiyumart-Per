@@ -83,7 +83,7 @@ export default function MobileAllVendors() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [activeTab, setActiveTab] = useState<FilterTab>('all');
   const [activeCategory, setActiveCategory] = useState<string>('all');
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   const [userLoc, setUserLoc] = useState<UserLoc | null>(null);
   const [locLoading, setLocLoading] = useState(false);
 

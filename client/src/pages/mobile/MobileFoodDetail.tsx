@@ -60,7 +60,7 @@ export default function MobileFoodDetail() {
   const isDesktop = !isMobile;
   const productId = params?.id || "";
 
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   const [selections, setSelections] = useState<Record<string, string[]>>({});
   const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState("");
