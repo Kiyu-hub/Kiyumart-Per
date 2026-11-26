@@ -70,7 +70,6 @@ const Icon = ({ d, size = 18, color = "currentColor", width = 2.2 }: { d: ReactN
 const BACK = <path d="m15 5-7 7 7 7" />;
 const SEARCH = <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></>;
 const HEART = <path d="M12 20s-7-4.5-9.5-9C.5 7 3 3.5 6.5 3.5c2 0 3.5 1 5.5 3.5 2-2.5 3.5-3.5 5.5-3.5C21 3.5 23.5 7 21.5 11c-2.5 4.5-9.5 9-9.5 9z" />;
-const SORT = <><path d="M7 4v16M3 8l4-4 4 4" /><path d="M17 20V4M13 16l4 4 4-4" /></>;
 const FILTER = <><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h14" /><circle cx="16" cy="6" r="2" /><circle cx="8" cy="12" r="2" /><circle cx="18" cy="18" r="2" /></>;
 
 function Eyebrow({ children, light = false }: { children: ReactNode; light?: boolean }) {
@@ -154,11 +153,9 @@ export default function MobileListingView(props: Props) {
   const toolbar = (
     <div id="kml-results" style={{ position: "sticky", top: 0, zIndex: 15, background: "var(--ms)", borderBottom: "1px solid var(--mo)", paddingTop: "env(safe-area-inset-top, 0px)", scrollMarginTop: 0 }}>
       <div className="kml-scroll" style={{ padding: "10px 16px", alignItems: "center" }}>
-        <button type="button" className="kml-pill" onClick={() => setSheetOpen(true)} aria-label={`Sort: ${SORT_LABELS[sort]}`}>
-          <Icon d={SORT} size={15} /> {sort === "newest" ? "Sort" : SORT_LABELS[sort]}
-        </button>
-        <button type="button" className="kml-pill" onClick={() => setSheetOpen(true)} aria-pressed={activeCount > 0}>
-          <Icon d={FILTER} size={15} /> Filter{activeCount > 0 ? ` · ${activeCount}` : ""}
+        <button type="button" className="kml-pill" onClick={() => setSheetOpen(true)} aria-pressed={activeCount > 0 || sort !== "newest"}
+          aria-label={`Sort and filter. Sorted by ${SORT_LABELS[sort]}${activeCount ? `, ${activeCount} filters on` : ""}`}>
+          <Icon d={FILTER} size={15} /> {sort === "newest" ? "Sort & filter" : SORT_LABELS[sort]}{activeCount > 0 ? ` · ${activeCount}` : ""}
         </button>
         {mode === "all" && (
           <button type="button" className="kml-pill" aria-pressed={filters.inStockOnly} onClick={() => setFilters((f) => ({ ...f, inStockOnly: !f.inStockOnly }))}>In stock</button>
