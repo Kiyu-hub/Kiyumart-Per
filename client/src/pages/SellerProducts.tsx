@@ -29,6 +29,8 @@ import { CategorySelect } from "@/components/CategorySelect";
 import { PageLoadingState } from "@/components/ui/loading-state";
 import { DynamicFieldRenderer } from "@/components/DynamicFieldRenderer";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
+import MobileAddProductWizard from "@/components/mobile/MobileAddProductWizard";
 import {
   StoreType,
   getStoreTypeLabel,
@@ -456,6 +458,40 @@ function FoodImageGallery({ images, onChange }: { images: string[]; onChange: (i
         </div>
       )}
     </Card>
+  );
+}
+
+/**
+ * "Add Product" entry point. Phones get the 3-step add-product flow
+ * (owner-approved 26 Nov 2026); desktop keeps the full form dialog unchanged.
+ * `?action=add` (used by the mobile seller dashboard) opens the flow directly.
+ */
+function AddProductEntry() {
+  const { isMobile } = useMobileDevice();
+  const { user } = useAuth();
+  const { data: store } = useQuery<Store>({ queryKey: ["/api/stores/my-store"], enabled: !!user?.id });
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!isMobile) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("action") === "add") {
+      setOpen(true);
+      params.delete("action");
+      const qs = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+    }
+  }, [isMobile]);
+  if (!isMobile) return <ProductFormDialog mode="create" />;
+  return (
+    <>
+      <Button data-testid="button-create-product" onClick={() => setOpen(true)}>
+        <Plus className="mr-2 h-4 w-4" />
+        Add Product
+      </Button>
+      {user?.id && (
+        <MobileAddProductWizard open={open} onClose={() => setOpen(false)} store={store as any} userId={user.id} />
+      )}
+    </>
   );
 }
 
@@ -3380,7 +3416,7 @@ export default function SellerProducts() {
                 {isRenewal ? "Renew Plan to Add Products" : "Add Product (Upgrade Required)"}
               </Button>
             ) : (
-              <ProductFormDialog mode="create" />
+              <AddProductEntry />
             )}
           </div>
         </div>

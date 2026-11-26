@@ -378,8 +378,8 @@
    phone viewport so its actions always stay tappable. max-width overrides a
    larger fixed width, so this is safe for already-responsive dialogs too. */
 @media (max-width: 767px) {
-  [role="dialog"],
-  [role="alertdialog"] {
+  [role="dialog"]:not([data-fullscreen]),
+  [role="alertdialog"]:not([data-fullscreen]) {
     max-width: calc(100vw - 1.5rem) !important;
   }
 }

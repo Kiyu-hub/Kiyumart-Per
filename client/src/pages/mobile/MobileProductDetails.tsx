@@ -9,6 +9,7 @@ import { getCurrentSellingPrice, getOriginalDisplayPrice } from "@/lib/pricing";
 import Product3DViewer, { canShow3DViewer } from "@/components/Product3DViewer";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { getStoreTypeProductFields, STORE_TYPES, type StoreType } from "@shared/storeTypes";
+import MeasurementGuideView, { isMeasurementGuide } from "@/components/MeasurementGuideView";
 
 const F = '-apple-system,"SF Pro Text","SF Pro",system-ui,sans-serif';
 
@@ -48,7 +49,7 @@ interface ProductVariant {
 
 // Seller-entered product facts for the details list. Uses the labels the seller
 // saw on the product form; internal flags (homepage picks, demo tags) are hidden.
-const HIDDEN_DYNAMIC_KEYS = new Set(["storeType", "storeSpecific", "devSeed", "homepageFeatured", "homepageNewArrival", "archived", "modifiers", "variantOptions"]);
+const HIDDEN_DYNAMIC_KEYS = new Set(["storeType", "storeSpecific", "measurementGuide", "sizeGuide", "variantSummary", "devSeed", "homepageFeatured", "homepageNewArrival", "archived", "modifiers", "variantOptions"]);
 const humanizeKey = (k: string) => k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").replace(/^./, c => c.toUpperCase());
 const formatSpecValue = (v: unknown): string => {
   if (v == null) return "";
@@ -472,6 +473,7 @@ export default function MobileProductDetails() {
 
   const descText = String(product.description || "").trim();
   const productSpecs = buildProductSpecs(product);
+  const measurementGuide = isMeasurementGuide(product.dynamicFields?.measurementGuide) ? product.dynamicFields!.measurementGuide as any : null;
   const shortDesc = descText.length > 160 ? descText.slice(0, 160) + "…" : descText;
   const rating = parseFloat(String(product.ratings || "0")) || 0;
   const starsDisplay = Array.from({ length: 5 }, (_, i) => i < Math.round(rating));
@@ -578,7 +580,7 @@ export default function MobileProductDetails() {
           </div>}
           <div style={{ fontSize: 12, color: availableStock > 0 ? brand : "#C64040", padding: "9px 0 20px", fontWeight: 700 }}>{availableStock > 0 ? (availableStock <= 5 ? `Only ${availableStock} remaining` : "Available") : "Out of stock"}</div>
           <button onClick={() => setEditorialDetailsOpen(true)} style={sectionButton}><span>Product details & care</span><span>＋</span></button>
-          {sizeOptions.length > 0 && <button onClick={() => setEditorialSizeGuideOpen(true)} style={sectionButton}><span>Size & fit</span><span>↗</span></button>}
+          {(sizeOptions.length > 0 || measurementGuide) && <button onClick={() => setEditorialSizeGuideOpen(true)} style={sectionButton}><span>{measurementGuide ? "Size & measurements" : "Size & fit"}</span><span>↗</span></button>}
           {descText && <div style={{ borderTop: `1px solid ${edge}`, padding: "19px 0 6px", fontSize: 13, lineHeight: 1.7, color: subtle, whiteSpace: "pre-wrap" }}>{descText}</div>}
           {productSpecs.length > 0 && <dl style={{ margin: "12px 0 25px" }}>
             {productSpecs.map(row => <div key={row.label} style={{ borderTop: `1px solid ${edge}`, display: "flex", justifyContent: "space-between", gap: 20, padding: "13px 0", fontSize: 13 }}>
@@ -597,17 +599,20 @@ export default function MobileProductDetails() {
           </button>
         </div>}
         {editorialDetailsOpen && <div role="presentation" onClick={() => setEditorialDetailsOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.56)", display: "flex", alignItems: "flex-end" }}>
-          <section role="dialog" aria-modal="true" aria-label="Product information" onClick={e => e.stopPropagation()} style={{ width: "100%", maxHeight: "80dvh", overflowY: "auto", background: paper, borderRadius: "24px 24px 0 0", padding: "26px 22px max(30px, env(safe-area-inset-bottom, 30px))" }}>
+          <section role="dialog" data-fullscreen="" aria-modal="true" aria-label="Product information" onClick={e => e.stopPropagation()} style={{ width: "100%", maxHeight: "80dvh", overflowY: "auto", background: paper, borderRadius: "24px 24px 0 0", padding: "26px 22px max(30px, env(safe-area-inset-bottom, 30px))" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 20 }}><h2 style={{ margin: 0, fontSize: 23 }}>Product details</h2><button onClick={() => setEditorialDetailsOpen(false)} aria-label="Close" style={{ border: 0, background: edge, borderRadius: "50%", width: 36, height: 36, color: ink }}>×</button></div>
             <p style={{ color: subtle, lineHeight: 1.8, whiteSpace: "pre-wrap", marginTop: 24 }}>{descText || "No additional description supplied by the seller."}</p>
             {productSpecs.map(row => <div key={row.label} style={{ borderTop: `1px solid ${edge}`, display: "flex", justifyContent: "space-between", padding: "14px 0", gap: 20, fontSize: 13 }}><span>{row.label}</span><span style={{ color: subtle, textAlign: "right" }}>{row.value}</span></div>)}
           </section>
         </div>}
         {editorialSizeGuideOpen && <div role="presentation" onClick={() => setEditorialSizeGuideOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.56)", display: "flex", alignItems: "flex-end" }}>
-          <section role="dialog" aria-modal="true" aria-label="Size and fit guide" onClick={e => e.stopPropagation()} style={{ width: "100%", maxHeight: "80dvh", overflowY: "auto", background: paper, borderRadius: "24px 24px 0 0", padding: "26px 22px max(30px, env(safe-area-inset-bottom, 30px))" }}>
+          <section role="dialog" data-fullscreen="" aria-modal="true" aria-label="Size and fit guide" onClick={e => e.stopPropagation()} style={{ width: "100%", maxHeight: "80dvh", overflowY: "auto", background: paper, borderRadius: "24px 24px 0 0", padding: "26px 22px max(30px, env(safe-area-inset-bottom, 30px))" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><h2 style={{ margin: 0, fontSize: 23 }}>Size & fit</h2><button onClick={() => setEditorialSizeGuideOpen(false)} aria-label="Close" style={{ border: 0, background: edge, borderRadius: "50%", width: 36, height: 36, color: ink }}>×</button></div>
-            <p style={{ color: subtle, lineHeight: 1.7, fontSize: 13 }}>Choose an available seller-listed size. Measurements may vary by brand; contact the seller for exact measurements.</p>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 25 }}>{sizeOptions.length > 0 ? sizeOptions.map(size => <button key={size} onClick={() => { handleSizeSelect(size); setEditorialSizeGuideOpen(false); }} style={{ minWidth: 55, minHeight: 50, background: selectedSize.toLowerCase() === size.toLowerCase() ? brand : "transparent", color: selectedSize.toLowerCase() === size.toLowerCase() ? "#fff" : ink, border: `1px solid ${edge}`, borderRadius: 8 }}>{size}</button>) : <span style={{ color: subtle }}>This product has no size options.</span>}</div>
+            {measurementGuide
+              ? <MeasurementGuideView data={measurementGuide} initialSize={selectedSize} ink={ink} subtle={subtle} edge={edge} brand={brand} />
+              : <p style={{ color: subtle, lineHeight: 1.7, fontSize: 13 }}>Choose an available seller-listed size. Measurements may vary by brand; contact the seller for exact measurements.</p>}
+            {sizeOptions.length > 0 && <div style={{ fontSize: 13, fontWeight: 700, color: ink, marginTop: 22 }}>Choose your size</div>}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12 }}>{sizeOptions.length > 0 ? sizeOptions.map(size => <button key={size} onClick={() => { handleSizeSelect(size); setEditorialSizeGuideOpen(false); }} style={{ minWidth: 55, minHeight: 50, background: selectedSize.toLowerCase() === size.toLowerCase() ? brand : "transparent", color: selectedSize.toLowerCase() === size.toLowerCase() ? "#fff" : ink, border: `1px solid ${edge}`, borderRadius: 8 }}>{size}</button>) : (!measurementGuide && <span style={{ color: subtle }}>This product has no size options.</span>)}</div>
           </section>
         </div>}
       </div>
