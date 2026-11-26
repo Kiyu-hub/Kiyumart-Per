@@ -8,6 +8,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { getCurrentSellingPrice, getOriginalDisplayPrice } from "@/lib/pricing";
 import Product3DViewer, { canShow3DViewer } from "@/components/Product3DViewer";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { getStoreTypeProductFields, STORE_TYPES, type StoreType } from "@shared/storeTypes";
 
 const F = '-apple-system,"SF Pro Text","SF Pro",system-ui,sans-serif';
 
@@ -42,6 +43,45 @@ interface ProductVariant {
   image: string | null;
   stock: number;
   priceAdjustment: string;
+}
+
+
+// Seller-entered product facts for the details list. Uses the labels the seller
+// saw on the product form; internal flags (homepage picks, demo tags) are hidden.
+const HIDDEN_DYNAMIC_KEYS = new Set(["storeType", "storeSpecific", "devSeed", "homepageFeatured", "homepageNewArrival", "archived", "modifiers", "variantOptions"]);
+const humanizeKey = (k: string) => k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").replace(/^./, c => c.toUpperCase());
+const formatSpecValue = (v: unknown): string => {
+  if (v == null) return "";
+  if (Array.isArray(v)) return v.map(x => String(x ?? "").trim()).filter(Boolean).join(", ");
+  if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (typeof v === "object") return "";
+  return String(v).trim();
+};
+function buildProductSpecs(product: { dynamicFields?: Record<string, unknown>; deliveryDuration?: string; categoryName?: string | null }): { label: string; value: string }[] {
+  const df = (product.dynamicFields || {}) as Record<string, unknown>;
+  const rows: { label: string; value: string }[] = [];
+  const storeType = typeof df.storeType === "string" && (STORE_TYPES as readonly string[]).includes(df.storeType) ? (df.storeType as StoreType) : null;
+  const specific = (df.storeSpecific && typeof df.storeSpecific === "object" ? df.storeSpecific : {}) as Record<string, unknown>;
+  const known = storeType ? getStoreTypeProductFields(storeType) : [];
+  const used = new Set<string>();
+  for (const f of known) {
+    const value = formatSpecValue(specific[f.name]);
+    if (value && f.name !== "sku") rows.push({ label: f.label, value });
+    used.add(f.name);
+  }
+  for (const [k, v] of Object.entries(specific)) {
+    if (used.has(k) || k === "sku") continue;
+    const value = formatSpecValue(v);
+    if (value) rows.push({ label: humanizeKey(k), value });
+  }
+  for (const [k, v] of Object.entries(df)) {
+    if (HIDDEN_DYNAMIC_KEYS.has(k)) continue;
+    const value = formatSpecValue(v);
+    if (value) rows.push({ label: humanizeKey(k), value });
+  }
+  if (product.categoryName) rows.push({ label: "Category", value: product.categoryName });
+  if (product.deliveryDuration) rows.push({ label: "Delivery", value: product.deliveryDuration });
+  return rows;
 }
 
 interface WishlistItem { id: string; userId: string; productId: string; createdAt: string; }
@@ -431,6 +471,7 @@ export default function MobileProductDetails() {
   }
 
   const descText = String(product.description || "").trim();
+  const productSpecs = buildProductSpecs(product);
   const shortDesc = descText.length > 160 ? descText.slice(0, 160) + "…" : descText;
   const rating = parseFloat(String(product.ratings || "0")) || 0;
   const starsDisplay = Array.from({ length: 5 }, (_, i) => i < Math.round(rating));
@@ -445,9 +486,9 @@ export default function MobileProductDetails() {
     const brand = "#009688";
     const heroImage = galleryImages[selectedImage] || galleryImages[0];
     const actionStyle: React.CSSProperties = {
-      border: "none", borderRadius: 999, width: 44, height: 44,
-      display: "grid", placeItems: "center", background: "rgba(255,255,255,.93)",
-      color: "#181818", cursor: "pointer", boxShadow: "0 3px 16px rgba(0,0,0,.12)"
+      border: "none", borderRadius: 999, width: 44, height: 44, padding: 0,
+      display: "grid", placeItems: "center", background: "#ffffff",
+      color: "#181818", cursor: "pointer", boxShadow: "0 4px 16px rgba(0,0,0,.18)"
     };
     const sectionButton: React.CSSProperties = {
       width: "100%", background: "transparent", border: 0, borderTop: `1px solid ${edge}`,
@@ -460,28 +501,39 @@ export default function MobileProductDetails() {
           onTouchStart={e => { touchStartX.current = e.touches[0].clientX; editorialTouchStartY.current = e.touches[0].clientY; }}
           onTouchEnd={e => { const dx = e.changedTouches[0].clientX - touchStartX.current; const dy = e.changedTouches[0].clientY - editorialTouchStartY.current; if (dy < -70 && Math.abs(dy) > Math.abs(dx)) setEditorialPurchaseOpen(true); else if (Math.abs(dx) > 45 && galleryImages.length > 1) setSelectedImage(i => (i + (dx < 0 ? 1 : -1) + galleryImages.length) % galleryImages.length); }}>
           {heroImage ? (
-            <img src={heroImage} alt={product.name} style={{ width: "100%", height: "100%", display: "block", objectFit: "contain", objectPosition: "center center" }} />
+            <img src={heroImage} alt={product.name} style={{ width: "100%", height: "100%", display: "block", objectFit: "cover", objectPosition: "center top" }} />
           ) : (
             <div style={{ height: "100%", display: "grid", placeItems: "center", color: subtle }}>Product image unavailable</div>
           )}
           <div style={{ position: "absolute", top: "max(16px, env(safe-area-inset-top, 16px))", left: 16, right: 16, display: "flex", justifyContent: "space-between", zIndex: 2 }}>
-            <button onClick={handleBack} aria-label="Back to products" style={actionStyle}><span aria-hidden="true" style={{ fontSize: 28, lineHeight: 1 }}>‹</span></button>
-            <div style={{ display: "flex", gap: 9 }}>
-              <button onClick={handleWishlist} aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"} aria-pressed={isWishlisted} style={actionStyle}><span style={{ fontSize: 24, color: isWishlisted ? "#E84855" : "#181818" }}>{isWishlisted ? "♥" : "♡"}</span></button>
-              <button onClick={() => navigate("/cart")} aria-label="View cart" style={actionStyle}><span style={{ fontSize: 21 }}>▢</span></button>
-            </div>
+            <button onClick={handleBack} aria-label="Back" style={actionStyle}>
+              <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="#181818" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5" /><path d="M12 19l-7-7 7-7" /></svg>
+            </button>
+            <button onClick={handleWishlist} aria-label={isWishlisted ? "Remove from wishlist" : "Add to wishlist"} aria-pressed={isWishlisted} style={actionStyle}>
+              <svg width={20} height={20} viewBox="0 0 24 24" fill={isWishlisted ? "#E84855" : "none"} stroke={isWishlisted ? "#E84855" : "#181818"} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z" /></svg>
+            </button>
           </div>
           {galleryImages.length > 1 && (
             <div style={{ position: "absolute", left: 14, right: 14, top: "50%", transform: "translateY(-50%)", display: "flex", justifyContent: "space-between", alignItems: "center", pointerEvents: "none" }}>
-              <button aria-label="Previous image" onClick={() => setSelectedImage(i => (i - 1 + galleryImages.length) % galleryImages.length)} style={{ ...actionStyle, pointerEvents: "auto" }}>‹</button>
-              <span style={{ color: "#171717", background: "rgba(255,255,255,.88)", borderRadius: 30, padding: "7px 12px", fontSize: 12, fontWeight: 700, pointerEvents: "none", transform: "translateY(65px)" }}>{selectedImage + 1} / {galleryImages.length}</span>
-              <button aria-label="Next image" onClick={() => setSelectedImage(i => (i + 1) % galleryImages.length)} style={{ ...actionStyle, pointerEvents: "auto" }}>›</button>
+              <button aria-label="Previous photo" onClick={() => setSelectedImage(i => (i - 1 + galleryImages.length) % galleryImages.length)} style={{ ...actionStyle, width: 40, height: 40, pointerEvents: "auto" }}>
+                <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#181818" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+              </button>
+              <button aria-label="Next photo" onClick={() => setSelectedImage(i => (i + 1) % galleryImages.length)} style={{ ...actionStyle, width: 40, height: 40, pointerEvents: "auto" }}>
+                <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#181818" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
+              </button>
             </div>
           )}
           <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "105px 22px max(28px, env(safe-area-inset-bottom, 28px))", background: "linear-gradient(transparent, rgba(0,0,0,.72))", color: "white", zIndex: 3, pointerEvents: "none" }}>
+            {galleryImages.length > 1 && <div aria-label={`Photo ${selectedImage + 1} of ${galleryImages.length}`} style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+              {galleryImages.map((_, i) => <span key={i} style={{ width: i === selectedImage ? 18 : 6, height: 6, borderRadius: 6, background: i === selectedImage ? "#fff" : "rgba(255,255,255,.5)", transition: "width .2s" }} />)}
+            </div>}
             <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2.6, marginBottom: 10 }}>KIYUMART · THE EDIT</div>
             <h1 style={{ fontSize: "clamp(25px, 7vw, 36px)", lineHeight: 1.1, maxWidth: 380, margin: "0 0 9px", fontWeight: 600 }}>{product.name}</h1>
-            <strong style={{ fontSize: 20 }}>{formatPrice(sellingPrice)}</strong>
+            <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 10 }}>
+              <strong style={{ fontSize: 20 }}>{formatPrice(sellingPrice)}</strong>
+              {originalPrice != null && originalPrice > sellingPrice && <span style={{ fontSize: 15, textDecoration: "line-through", color: "rgba(255,255,255,.7)" }}>{formatPrice(originalPrice)}</span>}
+              {originalPrice != null && originalPrice > sellingPrice && <span style={{ fontSize: 12, fontWeight: 800, background: "#009688", color: "#fff", borderRadius: 6, padding: "3px 7px" }}>−{Math.round((1 - sellingPrice / originalPrice) * 100)}%</span>}
+            </div>
             <button onClick={() => setEditorialPurchaseOpen(true)} style={{ display: "block", width: "100%", minHeight: 54, marginTop: 23, border: 0, borderRadius: 10, background: "#009688", color: "white", fontSize: 15, fontWeight: 800, pointerEvents: "auto", cursor: "pointer" }}>View details & choose options ↑</button>
           </div>
         </section>
@@ -499,7 +551,9 @@ export default function MobileProductDetails() {
           <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 16, marginBottom: 18 }}>
             <strong style={{ fontSize: 23, letterSpacing: -0.7, color: ink }}>{formatPrice(sellingPrice)}</strong>
             {originalPrice != null && originalPrice > sellingPrice && <span style={{ textDecoration: "line-through", color: subtle, fontSize: 14 }}>{formatPrice(originalPrice)}</span>}
-            {product.discount != null && product.discount > 0 && <span style={{ color: brand, fontSize: 12, fontWeight: 700 }}>−{product.discount}%</span>}
+            {originalPrice != null && originalPrice > sellingPrice
+              ? <span style={{ color: brand, fontSize: 12, fontWeight: 700 }}>−{Math.round((1 - sellingPrice / originalPrice) * 100)}%</span>
+              : product.discount != null && product.discount > 0 && <span style={{ color: brand, fontSize: 12, fontWeight: 700 }}>−{product.discount}%</span>}
           </div>
           {galleryImages.length > 1 && <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 12 }}>
             {galleryImages.map((src, i) => <button key={i} onClick={() => setSelectedImage(i)} aria-label={`View photo ${i + 1}`} aria-pressed={i === selectedImage} style={{ padding: 0, borderRadius: 8, width: 56, height: 72, flexShrink: 0, overflow: "hidden", border: i === selectedImage ? `2px solid ${brand}` : `1px solid ${edge}`, background: edge }}>
@@ -525,7 +579,12 @@ export default function MobileProductDetails() {
           <div style={{ fontSize: 12, color: availableStock > 0 ? brand : "#C64040", padding: "9px 0 20px", fontWeight: 700 }}>{availableStock > 0 ? (availableStock <= 5 ? `Only ${availableStock} remaining` : "Available") : "Out of stock"}</div>
           <button onClick={() => setEditorialDetailsOpen(true)} style={sectionButton}><span>Product details & care</span><span>＋</span></button>
           {sizeOptions.length > 0 && <button onClick={() => setEditorialSizeGuideOpen(true)} style={sectionButton}><span>Size & fit</span><span>↗</span></button>}
-          <div style={{ borderTop: `1px solid ${edge}`, padding: "19px 0 25px", fontSize: 13, lineHeight: 1.7, color: subtle }}>{descText ? (descText.length > 180 ? descText.slice(0, 180) + "…" : descText) : "Explore the details and available options above."}</div>
+          {descText && <div style={{ borderTop: `1px solid ${edge}`, padding: "19px 0 6px", fontSize: 13, lineHeight: 1.7, color: subtle, whiteSpace: "pre-wrap" }}>{descText}</div>}
+          {productSpecs.length > 0 && <dl style={{ margin: "12px 0 25px" }}>
+            {productSpecs.map(row => <div key={row.label} style={{ borderTop: `1px solid ${edge}`, display: "flex", justifyContent: "space-between", gap: 20, padding: "13px 0", fontSize: 13 }}>
+              <dt style={{ color: subtle }}>{row.label}</dt><dd style={{ margin: 0, color: ink, fontWeight: 600, textAlign: "right" }}>{row.value}</dd>
+            </div>)}
+          </dl>}
         </section>
         {editorialPurchaseOpen && <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 45, background: paper, borderTop: `1px solid ${edge}`, padding: "12px 18px max(12px, env(safe-area-inset-bottom, 12px))", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 -7px 24px rgba(0,0,0,.05)" }}>
           <div style={{ display: "flex", alignItems: "center", border: `1px solid ${edge}`, borderRadius: 9, minHeight: 49 }}>
@@ -541,7 +600,7 @@ export default function MobileProductDetails() {
           <section role="dialog" aria-modal="true" aria-label="Product information" onClick={e => e.stopPropagation()} style={{ width: "100%", maxHeight: "80dvh", overflowY: "auto", background: paper, borderRadius: "24px 24px 0 0", padding: "26px 22px max(30px, env(safe-area-inset-bottom, 30px))" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 20 }}><h2 style={{ margin: 0, fontSize: 23 }}>Product details</h2><button onClick={() => setEditorialDetailsOpen(false)} aria-label="Close" style={{ border: 0, background: edge, borderRadius: "50%", width: 36, height: 36, color: ink }}>×</button></div>
             <p style={{ color: subtle, lineHeight: 1.8, whiteSpace: "pre-wrap", marginTop: 24 }}>{descText || "No additional description supplied by the seller."}</p>
-            {(product.dynamicFields && Object.keys(product.dynamicFields).length > 0) && Object.entries(product.dynamicFields).map(([k, v]) => <div key={k} style={{ borderTop: `1px solid ${edge}`, display: "flex", justifyContent: "space-between", padding: "14px 0", gap: 20, fontSize: 13 }}><span style={{ textTransform: "capitalize" }}>{k.replace(/([A-Z])/g, " $1")}</span><span style={{ color: subtle, textAlign: "right" }}>{String(v ?? "")}</span></div>)}
+            {productSpecs.map(row => <div key={row.label} style={{ borderTop: `1px solid ${edge}`, display: "flex", justifyContent: "space-between", padding: "14px 0", gap: 20, fontSize: 13 }}><span>{row.label}</span><span style={{ color: subtle, textAlign: "right" }}>{row.value}</span></div>)}
           </section>
         </div>}
         {editorialSizeGuideOpen && <div role="presentation" onClick={() => setEditorialSizeGuideOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.56)", display: "flex", alignItems: "flex-end" }}>
