@@ -427,7 +427,9 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
             const q = qty(c.id, sz);
             if (q <= 0) continue;
             try {
-              await sendJson("POST", `/api/products/${created.id}/variants`, { color: c.name, size: sz || null, images: c.images.slice(0, 8), stock: q });
+              // No sizes chosen → save as "One size" so every option has a size
+              // (older server rules dropped size-less options from stock/photos).
+              await sendJson("POST", `/api/products/${created.id}/variants`, { color: c.name, size: sz || "One size", images: c.images.slice(0, 8), stock: q });
             } catch { variantFailures += 1; }
           }
         }

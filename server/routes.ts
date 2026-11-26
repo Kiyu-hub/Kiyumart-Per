@@ -7239,12 +7239,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // A colour (primary option) is required; size is optional, matching the
+  // variant create/update endpoints ("single-axis products"). Requiring a size
+  // here made one-size items (bags, hijabs) recalculate to 0 stock and no photos.
   const getValidVariantRows = (variants: any[] = []) =>
-    variants.filter((variant) => {
-      const color = String(variant?.color || "").trim();
-      const size = String(variant?.size || "").trim();
-      return color.length > 0 && size.length > 0;
-    });
+    variants.filter((variant) => String(variant?.color || "").trim().length > 0);
 
   const getProductImagesAndStockFromValidVariants = (variants: any[] = []) => {
     const validVariants = getValidVariantRows(variants);
@@ -7366,7 +7365,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { productImages, productStock } = getProductImagesAndStockFromValidVariants(allVariants);
       await storage.updateProduct(productId, {
         stock: productStock,
-        images: productImages,
+        // Keep the product's own photos if no option carries any.
+        ...(productImages.length > 0 ? { images: productImages } : {}),
         dynamicFields: {
           ...(product.dynamicFields || {}),
           variantSummary: buildVariantSummarySnapshot(allVariants),
@@ -7430,7 +7430,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { productImages, productStock } = getProductImagesAndStockFromValidVariants(allVariants);
       await storage.updateProduct(productId, {
         stock: productStock,
-        images: productImages,
+        // Keep the product's own photos if no option carries any.
+        ...(productImages.length > 0 ? { images: productImages } : {}),
         dynamicFields: {
           ...(product.dynamicFields || {}),
           variantSummary: buildVariantSummarySnapshot(allVariants),
@@ -7482,7 +7483,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { productImages, productStock } = getProductImagesAndStockFromValidVariants(allVariants);
       await storage.updateProduct(productId, {
         stock: productStock,
-        images: productImages,
+        // Keep the product's own photos if no option carries any.
+        ...(productImages.length > 0 ? { images: productImages } : {}),
         dynamicFields: {
           ...(product.dynamicFields || {}),
           variantSummary: buildVariantSummarySnapshot(allVariants),
