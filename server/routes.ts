@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import { renderStudioPhoto, isCloudinaryImageUrl } from "./imageStudio";
 import { createServer, type Server } from "http";
 import { Server as SocketIOServer } from "socket.io";
 import { execFile } from "child_process";
@@ -2732,6 +2733,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Image upload error:", error);
       res.status(500).json({ error: error.message || "Failed to upload image" });
+    }
+  });
+
+  // Studio photo: background removed, product on pure white, 3:4 full-screen safe.
+  // Falls back to the original photo (studio: false) if Cloudinary can't do it.
+  app.post("/api/upload/studio-photo", requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const url = String(req.body?.url || "");
+      if (!isCloudinaryImageUrl(url)) return res.status(400).json({ error: "Only uploaded product photos can be turned into studio photos" });
+      if (process.env.STUDIO_PHOTOS_DISABLED === "true") return res.json({ url, studio: false, reason: "disabled" });
+      const result = await renderStudioPhoto(url, { width: Number(req.body?.width) || null, height: Number(req.body?.height) || null });
+      if (result.url) return res.json({ url: result.url, originalUrl: url, studio: true });
+      console.warn("Studio photo skipped:", result.reason);
+      return res.json({ url, originalUrl: url, studio: false, reason: result.reason });
+    } catch (error: any) {
+      console.error("Studio photo error:", error);
+      res.json({ url: String(req.body?.url || ""), studio: false, reason: "error" });
     }
   });
 
