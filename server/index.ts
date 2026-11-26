@@ -9,6 +9,8 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import jwt from "jsonwebtoken";
 import { registerRoutes } from "./routes";
+import { catalogDepartmentsRouter } from "./catalogDepartmentsRoutes";
+import { fashionServicesRouter } from "./fashionServicesRoutes";
 import { setupVite, serveStatic, log, DIST_PUBLIC_PATH } from "./vite";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
@@ -157,7 +159,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie', 'X-Elevated-Access'],
 }));
 
 // Configure Helmet for security headers
@@ -366,6 +368,10 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ limit: '10mb', extended: false }));
 app.use(cookieParser());
+// Independent, elevated Super Admin catalog department controls.
+app.use(catalogDepartmentsRouter);
+// Seller-owned fashion services, independent of the product/order API.
+app.use(fashionServicesRouter);
 
 (async () => {
   // Backward-compatible schema self-heal for environments missing latest migration.

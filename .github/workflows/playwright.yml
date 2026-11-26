@@ -9,6 +9,12 @@ on:
 jobs:
   e2e:
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/kiyumart
+      SESSION_SECRET: ci-only-e2e-secret
+      NODE_ENV: test
+      AUTO_MAINTENANCE_DURATION_MS: '0'
     services:
       postgres:
         image: postgres:15
@@ -41,27 +47,27 @@ jobs:
       - name: Install Playwright browsers & OS deps
         run: npx playwright install --with-deps chromium
 
+      - name: Prepare isolated test database schema
+        run: npx drizzle-kit push --force
+
+      - name: Seed isolated test database
+        run: npx tsx server/seed.ts
+
+      - name: Build frontend for server bootstrap
+        run: npm run build
+
       - name: Start backend (server)
-        env:
-          SESSION_SECRET: testsecret
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kiyumart
-          PGHOST: localhost
-          PGUSER: postgres
-          PGPASSWORD: postgres
-          PGPORT: 5432
-          PGDATABASE: kiyumart
-          NODE_ENV: test
         run: |
-          nohup bash -lc "SESSION_SECRET=$SESSION_SECRET DATABASE_URL=$DATABASE_URL npx tsx server/index.ts > server-ci.log 2>&1 &" 
+          npx tsx server/index.ts > server-ci.log 2>&1 &
+          echo $! > server-ci.pid
 
-      - name: Wait for backend
-        run: npx wait-on http://localhost:5000/api/health --timeout 60000
-
-      - name: Seed database
-        env:
-          SESSION_SECRET: testsecret
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kiyumart
-        run: npx tsx server/seed.ts || true
+      - name: Wait for backend (show startup errors on failure)
+        run: |
+          if ! npx wait-on http://127.0.0.1:5000/api/health --timeout 60000; then
+            echo "Backend startup failed. Sanitized startup diagnostics:"
+            sed -E 's#postgresql://[^[:space:]]+#postgresql://[REDACTED]#g' server-ci.log | tail -n 70
+            exit 1
+          fi
 
       - name: Start frontend (Vite)
         run: |

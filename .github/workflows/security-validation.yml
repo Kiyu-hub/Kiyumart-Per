@@ -1,0 +1,45 @@
+name: Security branch validation
+
+on:
+  push:
+    branches:
+      - security/role-verification-hardening
+    paths:
+      - 'server/auth.ts'
+      - 'server/__tests__/**'
+      - 'security/**'
+      - '.github/workflows/security-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Security tests, TypeScript, full unit suite, and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      SESSION_SECRET: security-ci-only-random-test-not-production
+      DATABASE_URL: postgresql://test:test@127.0.0.1:5432/test
+      AUTO_MAINTENANCE_DURATION_MS: '0'
+    steps:
+      - name: Checkout security branch
+        uses: actions/checkout@v4
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run complete existing server unit test suite (no real DB credentials)
+        run: node scripts/run-tsx-test-suite-safe.mjs
+      - name: TypeScript static check
+        run: npx tsc --noEmit --pretty false
+      - name: Production bundle build (not deployed)
+        run: npm run build

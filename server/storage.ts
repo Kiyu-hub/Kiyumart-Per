@@ -1,9 +1,11 @@
 import { db } from "../db/index";
+import { requirePublishedCategoryForStore } from "./catalogCategoryRules";
+import { PROTECTED_FASHION_BANNER_SLUGS } from "@shared/catalogTaxonomy";
 import { 
   users, products, orders, orderItems, orderStatusHistory, deliveryZones, deliveryTracking,
   chatMessages, transactions, platformSettings, cart, wishlist, reviews, riderReviews,
   productVariants, heroBanners, promotionalAds, promotionPricing, promotionApplications, coupons, bannerCollections, marketplaceBanners,
-  stores, categoryFields, categories, notifications, mediaLibrary, footerPages,
+  stores, categoryFields, categories, catalogDepartments, notifications, mediaLibrary, footerPages,
   idempotencyKeys,
   commissions, platformEarnings, sellerPayouts, riderPayouts, roleFeatures, cartLinks, emailOtpVerifications,
   type User, type InsertUser, type Product, type InsertProduct,
@@ -1254,7 +1256,9 @@ export class DbStorage implements IStorage {
 
   // Product operations
   async createProduct(product: InsertProduct & { sellerId: string }): Promise<Product> {
-    const result = await db.insert(products).values(product).returning();
+    const resolved = await requirePublishedCategoryForStore(product.categoryId, product.storeId);
+    const prepared = { ...product, categoryId: resolved.id, category: resolved.name };
+    const result = await db.insert(products).values(prepared).returning();
     this.invalidateCache("getProducts");
     return result[0];
   }
@@ -1304,7 +1308,21 @@ export class DbStorage implements IStorage {
   }
 
   async updateProduct(id: string, data: Partial<Product>): Promise<Product | undefined> {
-    const result = await db.update(products).set({ ...data, updatedAt: new Date() }).where(eq(products.id, id)).returning();
+    let changes = data;
+    if (Object.prototype.hasOwnProperty.call(data, "categoryId") || Object.prototype.hasOwnProperty.call(data, "storeId")) {
+      const current = await this.getProduct(id);
+      if (!current) return undefined;
+      const resolved = await requirePublishedCategoryForStore(
+        Object.prototype.hasOwnProperty.call(data, "categoryId") ? data.categoryId : current.categoryId,
+        Object.prototype.hasOwnProperty.call(data, "storeId") ? data.storeId : current.storeId,
+      );
+      changes = { ...data, categoryId: resolved.id, category: resolved.name };
+    } else if (Object.prototype.hasOwnProperty.call(data, "category")) {
+      // Never allow editing the old text category independently from categoryId.
+      const { category: _unused, ...rest } = data;
+      changes = rest;
+    }
+    const result = await db.update(products).set({ ...changes, updatedAt: new Date() }).where(eq(products.id, id)).returning();
     this.invalidateCache(`getProduct:${id}`);
     this.invalidateCache("getProducts");
     return result[0];
@@ -5486,8 +5504,31 @@ export class DbStorage implements IStorage {
   }
 
   // Category operations
+  private async requireValidDepartmentForCategory(input: any, current?: Category): Promise<any> {
+    const types = Array.isArray(input.storeTypes)
+      ? input.storeTypes.map(String)
+      : Array.isArray(current?.storeTypes) ? current.storeTypes : ["clothing"];
+    const selectedId = Object.prototype.hasOwnProperty.call(input, "departmentId")
+      ? input.departmentId : current?.departmentId;
+    const [department] = selectedId
+      ? await db.select().from(catalogDepartments).where(eq(catalogDepartments.id, selectedId)).limit(1)
+      : await db.select().from(catalogDepartments).where(eq(catalogDepartments.slug, "clothing")).limit(1);
+    if (!department || !department.isEnabled || !department.launchReady) {
+      throw new Error("This marketplace department is not enabled. Ask the Super Admin to launch it first.");
+    }
+    if (types.some((type: string) => !department.storeTypes.includes(type))) {
+      throw new Error("The category's allowed store types do not belong to the selected department.");
+    }
+    const image = input.image === undefined ? current?.image : input.image;
+    if (!image || !String(image).trim()) {
+      throw new Error("A category must have a valid cover image.");
+    }
+    return { ...input, storeTypes: types, departmentId: department.id };
+  }
+
   async createCategory(category: any): Promise<Category> {
-    const [newCategory] = await db.insert(categories).values(category).returning();
+    const validated = await this.requireValidDepartmentForCategory(category);
+    const [newCategory] = await db.insert(categories).values(validated).returning();
     return newCategory;
   }
 
@@ -5521,24 +5562,30 @@ export class DbStorage implements IStorage {
   }
 
   async updateCategory(id: string, data: any): Promise<Category | undefined> {
+    const current = await this.getCategory(id);
+    if (!current) return undefined;
+    if (data.slug && data.slug !== current.slug &&
+        PROTECTED_FASHION_BANNER_SLUGS.includes(current.slug as any)) {
+      throw new Error("This category's slug is referenced by homepage banners and cannot be changed until those links are updated.");
+    }
+    const validated = await this.requireValidDepartmentForCategory(data, current);
     const [updated] = await db.update(categories)
-      .set({ ...data, updatedAt: new Date() })
+      .set({ ...validated, updatedAt: new Date() })
       .where(eq(categories.id, id))
       .returning();
     return updated;
   }
 
   async deleteCategory(id: string): Promise<boolean> {
-    // Unbind any products that reference this category before deletion so the
-    // foreign-key constraint doesn't block the delete. Products remain alive
-    // and accessible (they just lose their category link).
-    await db.transaction(async (tx) => {
-      await tx.update(products).set({ categoryId: null }).where(eq(products.categoryId, id));
-      await tx.delete(categories).where(eq(categories.id, id));
-    });
-    // Verify deletion happened
-    const [check] = await db.select({ id: categories.id }).from(categories).where(eq(categories.id, id)).limit(1);
-    return !check;
+    // Never silently orphan product categories. An admin must reassign or
+    // archive linked products before deleting a category.
+    const [linked] = await db.select({ id: products.id }).from(products)
+      .where(eq(products.categoryId, id)).limit(1);
+    if (linked) {
+      throw new Error("This category still has products. Reassign or archive its products before deletion.");
+    }
+    const removed = await db.delete(categories).where(eq(categories.id, id)).returning({ id: categories.id });
+    return removed.length > 0;
   }
 
   async getCategoriesByStore(storeId: string): Promise<Category[]> {
@@ -5550,6 +5597,7 @@ export class DbStorage implements IStorage {
         description: categories.description,
         image: categories.image,
         storeTypes: categories.storeTypes,
+        departmentId: categories.departmentId,
         productFieldsConfig: categories.productFieldsConfig,
         isActive: categories.isActive,
         displayOrder: categories.displayOrder,

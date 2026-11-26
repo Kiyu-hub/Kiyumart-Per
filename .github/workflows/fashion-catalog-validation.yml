@@ -1,0 +1,38 @@
+name: Fashion catalog validation
+
+on:
+  push:
+    branches: [ feature/fashion-category-gating ]
+    paths:
+      - "shared/**"
+      - "server/**"
+      - "client/**"
+      - "migrations/0030_catalog_departments.sql"
+      - ".github/workflows/fashion-catalog-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SESSION_SECRET: ci-only-catalog-validation
+      DATABASE_URL: postgresql://test:test@localhost:5432/test
+      AUTO_MAINTENANCE_DURATION_MS: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: TypeScript type check
+        run: npx tsc --noEmit --pretty false
+      - name: Existing server unit tests (no live database)
+        run: node scripts/run-tsx-test-suite-safe.mjs
+      - name: Frontend and backend production bundle build
+        run: npm run build

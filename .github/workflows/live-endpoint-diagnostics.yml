@@ -1,0 +1,25 @@
+name: KiyuMart live endpoint diagnostics (read-only)
+
+on:
+  push:
+    branches:
+      - feature/fashion-category-gating
+    paths:
+      - scripts/diagnostics/live-endpoints-check.mjs
+      - .github/workflows/live-endpoint-diagnostics.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-live-endpoints:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check public KiyuMart endpoints without credentials
+        run: node scripts/diagnostics/live-endpoints-check.mjs
