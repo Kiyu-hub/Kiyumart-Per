@@ -488,7 +488,9 @@ export function getStoreTypeFields(storeType: StoreType): DynamicField[] {
 export const STORE_TYPE_PRODUCT_CONFIG: Record<StoreType, DynamicField[]> = {
   clothing: [
     { name: "genderTarget", label: "Target Wearer", type: "select", options: ["Women", "Men", "Unisex", "Girls", "Boys"], required: true, description: "Who this clothing item is designed for." },
-    { name: "fitType", label: "Fit Type", type: "select", options: ["Slim fit", "Regular fit", "Relaxed fit", "Oversized"], required: true, description: "Choose how this item fits on the body." },
+    // Not required at schema level: fit only applies to garments, not shoes, bags,
+    // hijabs or jewellery. The phone add-product flow requires it for garments.
+    { name: "fitType", label: "Fit Type", type: "select", options: ["Slim fit", "Regular fit", "Relaxed fit", "Oversized"], required: false, description: "Choose how this item fits on the body." },
     { name: "material", label: "Material", type: "text", placeholder: "e.g. Chiffon, Cotton, Crepe", required: true, description: "Main fabric or material used for this product." },
     // Demoted to optional (Phase 1 rebalance) — Shopify keeps these optional;
     // Ghana sellers commonly skip them and lose the listing.

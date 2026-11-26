@@ -257,8 +257,13 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
   const oneSizeGuide = !!guide?.oneSize;
   const bodyGuideId: BodyGuideId = /^(men|boys)$/i.test(String(specific.genderTarget || "")) ? "body-men" : "body-women";
 
-  // Step 1 shows the store type's product details, except beauty facts (step 3).
-  const step1Fields = isBeauty ? [] : productFields;
+  // Step 1 shows the store type's product details that fit THIS item: "Fit"
+  // only for garments (not shoes, bags, hijabs or jewellery). Beauty facts are
+  // asked in step 3 instead.
+  const isGarment = measureMode.mode === "garment" && !MEASUREMENT_GUIDES[guideOverride || measureMode.guide].kind;
+  const step1Fields: DynamicField[] = isBeauty ? [] : productFields
+    .filter((f) => f.name !== "fitType" || isGarment || !categoryId)
+    .map((f) => (f.name === "fitType" ? { ...f, required: isGarment } : f));
   const step3BeautyFields = isBeauty ? productFields : [];
 
   const sizePresets = isShoes ? SHOE_SIZES : isBeauty ? [] : CLOTHING_SIZES;
@@ -396,7 +401,9 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
           } : {}),
         };
       }
-      const storeSpecific = buildStoreTypeProductDefaults(storeType, specific);
+      // Drop "Fit" if the seller picked it before switching to a non-garment category.
+      const { fitType: _fit, ...nonGarmentSpecific } = specific;
+      const storeSpecific = buildStoreTypeProductDefaults(storeType, isGarment ? specific : nonGarmentSpecific);
       const productData: any = {
         name: name.trim(),
         description: description.trim(),
