@@ -174,10 +174,10 @@ export default function AllProducts() {
         categoryLabel.includes(debouncedSearchQuery.toLowerCase());
       const matchesCategory =
         !selectedCategory ||
-        productMatchesCategory(product, { slug: selectedCategory });
+        productMatchesCategory(product, (Array.isArray(categories) ? categories : []).find((c: any) => c.slug === selectedCategory) || { slug: selectedCategory });
       return matchesSearch && matchesCategory;
     });
-  }, [nonFoodProducts, debouncedSearchQuery, selectedCategory]);
+  }, [nonFoodProducts, debouncedSearchQuery, selectedCategory, categories]);
 
   const availableCategories = useMemo(() => {
     return categories.filter((category: any) =>

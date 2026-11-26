@@ -29,13 +29,15 @@ export function isMeasurementGuide(value: unknown): value is MeasurementGuideDat
  * the sizes you can buy plus the selected size, so tapping a size selects it
  * AND shows its measurements (no second "choose your size" row).
  */
-export default function MeasurementGuideView({ data, initialSize, sizes: buyableSizes, selectedSize, onSelectSize, ink = "#181818", subtle = "#6D6A65", edge = "#E8E5DF", brand = "#009688" }: {
+export default function MeasurementGuideView({ data, initialSize, sizes: buyableSizes, selectedSize, onSelectSize, onlySize, ink = "#181818", subtle = "#6D6A65", edge = "#E8E5DF", brand = "#009688" }: {
   data: MeasurementGuideData;
   initialSize?: string;
   /** Sizes the shopper can buy; when given with onSelectSize the buttons select the size. */
   sizes?: string[];
   selectedSize?: string;
   onSelectSize?: (size: string) => void;
+  /** Show just this size (the one the shopper already picked); no size buttons. */
+  onlySize?: string;
   ink?: string; subtle?: string; edge?: string; brand?: string;
 }) {
   const guide = MEASUREMENT_GUIDES[data.type];
@@ -47,7 +49,7 @@ export default function MeasurementGuideView({ data, initialSize, sizes: buyable
     sizes.find((s) => s.toLowerCase() === String(initialSize || "").toLowerCase()) || sizes[0] || "",
   );
   if (!guide) return null;
-  const size = controlled ? (selectedSize || "") : localSize;
+  const size = onlySize ? onlySize : controlled ? (selectedSize || "") : localSize;
   const setSize = (s: string) => (controlled ? onSelectSize!(s) : setLocalSize(s));
   const rowKey = guide.oneSize
     ? measuredSizes[0]
@@ -76,7 +78,10 @@ export default function MeasurementGuideView({ data, initialSize, sizes: buyable
         </div>
       </div>
 
-      {(controlled ? sizes.length > 0 : !guide.oneSize && sizes.length > 1) && (
+      {onlySize && !guide.oneSize && (
+        <div style={{ fontSize: 15, fontWeight: 800, color: ink }}>Your size: {isShoes && /^\d/.test(onlySize) ? `EU ${onlySize}` : onlySize}</div>
+      )}
+      {!onlySize && (controlled ? sizes.length > 0 : !guide.oneSize && sizes.length > 1) && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {controlled && <span style={{ fontSize: 13, fontWeight: 700, color: ink }}>{size ? `Size: ${size}` : "Choose your size"}</span>}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
