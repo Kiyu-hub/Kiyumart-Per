@@ -177,9 +177,7 @@ export default function MultiVendorHome() {
     Array.isArray(c.storeTypes) &&
     c.storeTypes.some((t) => t === "food_beverages" || t === "restaurant");
   const categoriesWithProducts = categories.filter(
-    (category) =>
-      !isFoodScoped(category) &&
-      (getCategoryProductCount(category) > 0 || Boolean(category.requestedBySeller)),
+    (category) => !isFoodScoped(category) && category.isActive !== false,
   );
   
   const isAdmin = user?.role === "admin";
