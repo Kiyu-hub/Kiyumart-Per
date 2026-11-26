@@ -85,6 +85,22 @@ function buildProductSpecs(product: { dynamicFields?: Record<string, unknown>; d
   return rows;
 }
 
+// Sizes always run smallest → largest: letter sizes in clothing order, then
+// numbers (shoe/dress sizes), then ages/months; unknown labels keep their order.
+const LETTER_SIZE_ORDER = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "2XL", "XXXL", "3XL", "4XL", "5XL", "FREE SIZE", "ONE SIZE"];
+const sizeRank = (label: string): [number, number] => {
+  const t = label.trim().toUpperCase();
+  const letter = LETTER_SIZE_ORDER.indexOf(t);
+  if (letter >= 0) return [0, letter];
+  const num = parseFloat(t.replace(/[^0-9.]/g, ""));
+  if (Number.isFinite(num)) return [t.includes("M") && /\d\s*-\s*\d/.test(t) ? 1 : t.includes("Y") ? 2 : 1, num];
+  return [3, 0];
+};
+const sortSizes = (sizes: string[]) =>
+  sizes.map((s, i) => ({ s, i, r: sizeRank(s) }))
+    .sort((a, b) => a.r[0] - b.r[0] || a.r[1] - b.r[1] || a.i - b.i)
+    .map((x) => x.s);
+
 interface WishlistItem { id: string; userId: string; productId: string; createdAt: string; }
 
 const VARIANT_COLOR_PRESETS: Record<string, string> = {
@@ -249,13 +265,13 @@ export default function MobileProductDetails() {
 
   const selectedColor = String(selectedColorGroup?.color || selectedVariantBase?.color || "").trim();
 
-  const sizeOptions = Array.from(new Set(
+  const sizeOptions = sortSizes(Array.from(new Set(
     (selectedColorGroup?.sizes?.length
       ? selectedColorGroup.sizes
       : variants.filter(v => !selectedColor || String(v.color || "").trim().toLowerCase() === selectedColor.toLowerCase())
           .flatMap(v => splitSizes(v.size))
     ).filter(Boolean)
-  ));
+  )));
 
   const selectedSize = selectedSizeOption || sizeOptions[0] || splitSizes(selectedVariantBase?.size)[0] || "";
 
