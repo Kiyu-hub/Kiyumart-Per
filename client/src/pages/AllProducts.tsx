@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Filter, ShoppingBag, Loader2 } from "lucide-react";
 import MarketplaceBannerCarousel from "@/components/MarketplaceBannerCarousel";
 import { useDebounce } from "@/hooks/useDebounce";
+import { FashionProductCard, FashionProductSkeleton, FASHION_CARD_CSS, fashionCardVars } from "@/components/mobile/FashionProductCard";
 import { getProductCategoryLabel, productMatchesCategory } from "@/lib/categoryUtils";
 import { excludeFoodVendorProducts, getFoodStoreIdSet } from "@/lib/foodVendors";
 import { useMobileDevice } from "@/hooks/useMobileDevice";
@@ -207,6 +208,11 @@ export default function AllProducts() {
     ? (Array.isArray(categories) ? categories : []).find((c: any) => c.slug === categoryParam || c.id === categoryParam)?.name || "Products"
     : "All Products");
 
+  const storeNameById = new Map<string, string>(
+    (Array.isArray(stores) ? stores : []).map((st: any) => [String(st?.id || ""), String(st?.name || "")]),
+  );
+  const storeNameFor = (p: any) => storeNameById.get(String(p?.storeId || "")) || null;
+
   if (isMobile) {
     const F = '-apple-system,"SF Pro Text","SF Pro",system-ui,sans-serif';
     const isDarkVal = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
@@ -287,19 +293,12 @@ export default function AllProducts() {
           </div>
         )}
 
-        {/* Product grid */}
-        <div style={{ padding: "10px 12px 0" }}>
+        {/* Product grid — same card as the homepage (FashionProductCard) */}
+        <style>{FASHION_CARD_CSS}</style>
+        <div style={{ ...fashionCardVars(isDarkVal), padding: "12px 16px 0" } as React.CSSProperties}>
           {isLoading ? (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} style={{ background: card, borderRadius: 14, overflow: "hidden", border: `1px solid ${bdr}` }}>
-                  <div style={{ aspectRatio: "5/4", background: skel }} />
-                  <div style={{ padding: "10px 10px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div style={{ width: "75%", height: 11, borderRadius: 4, background: skel }} />
-                    <div style={{ width: "45%", height: 9, borderRadius: 4, background: skel }} />
-                  </div>
-                </div>
-              ))}
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: "18px 12px" }}>
+              {Array.from({ length: 6 }).map((_, i) => <FashionProductSkeleton key={i} />)}
             </div>
           ) : displayProducts.length === 0 ? (
             <div style={{ textAlign: "center", padding: "60px 20px", color: muted }}>
@@ -308,56 +307,17 @@ export default function AllProducts() {
               <p style={{ fontSize: 13 }}>Try a different search or category</p>
             </div>
           ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {displayProducts.map((product: any) => {
-                const sp = getCurrentSellingPrice({ price: product.price, costPrice: product.costPrice ?? null, discount: product.discount ?? null });
-                const op = getOriginalDisplayPrice({ price: product.price, costPrice: product.costPrice ?? null, discount: product.discount ?? null });
-                const isWishlisted = wishlist.some((w: any) => w.productId === product.id);
-                return (
-                  <button
-                    key={product.id}
-                    onClick={() => navigate(`/product/${product.id}`)}
-                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left", WebkitTapHighlightColor: "transparent" }}
-                  >
-                    <div style={{ background: card, borderRadius: 14, overflow: "hidden", border: `1px solid ${bdr}` }}>
-                      <div style={{ position: "relative", aspectRatio: "5/4", overflow: "hidden", background: inp }}>
-                        {product.images?.[0] ? (
-                          <img src={product.images[0]} alt={product.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                        ) : (
-                          <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <svg width={24} height={24} viewBox="0 0 24 24" fill="none" stroke={muted} strokeWidth={1.5}><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><path d="m21 15-5-5L5 21" /></svg>
-                          </div>
-                        )}
-                        {product.discount > 0 && (
-                          <div style={{ position: "absolute", top: 6, left: 6, background: "#ef4444", color: "#fff", fontSize: 10, fontWeight: 700, borderRadius: 5, padding: "2px 5px" }}>-{product.discount}%</div>
-                        )}
-                        <button
-                          onClick={e => { e.stopPropagation(); handleToggleWishlist(product.id); }}
-                          style={{ position: "absolute", top: 6, right: 6, width: 28, height: 28, borderRadius: 14, background: isDarkVal ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.85)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", WebkitTapHighlightColor: "transparent" }}
-                        >
-                          <svg width={14} height={14} viewBox="0 0 24 24" fill={isWishlisted ? "#ef4444" : "none"} stroke={isWishlisted ? "#ef4444" : muted} strokeWidth={2} strokeLinecap="round">
-                            <path d="M12 20s-7-4.5-9.5-9C.5 7 3 3.5 6.5 3.5c2 0 3.5 1 5.5 3.5 2-2.5 3.5-3.5 5.5-3.5C21 3.5 23.5 7 21.5 11c-2.5 4.5-9.5 9-9.5 9z" />
-                          </svg>
-                        </button>
-                      </div>
-                      <div style={{ padding: "8px 10px 10px" }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: txt, lineHeight: 1.3, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as any, marginBottom: 4 }}>
-                          {product.name}
-                        </div>
-                        <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
-                          <span style={{ fontSize: 14, fontWeight: 800, color: accent }}>{formatPrice(sp)}</span>
-                          {op && op > sp && (
-                            <span style={{ fontSize: 11, color: muted, textDecoration: "line-through" }}>{formatPrice(op)}</span>
-                          )}
-                        </div>
-                        {(product.stock || 0) === 0 && (
-                          <div style={{ fontSize: 10, color: "#ef4444", fontWeight: 600, marginTop: 2 }}>Out of stock</div>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: "18px 12px" }}>
+              {displayProducts.map((product: any) => (
+                <FashionProductCard
+                  key={product.id}
+                  product={product}
+                  storeName={storeNameFor(product)}
+                  isWishlisted={wishlist.some((w: any) => w.productId === product.id)}
+                  onToggleWishlist={handleToggleWishlist}
+                  onClick={() => navigate(`/product/${product.id}`)}
+                />
+              ))}
             </div>
           )}
         </div>
