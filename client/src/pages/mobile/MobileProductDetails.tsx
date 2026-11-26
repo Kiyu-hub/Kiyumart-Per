@@ -545,7 +545,6 @@ export default function MobileProductDetails() {
             {galleryImages.length > 1 && <div aria-label={`Photo ${selectedImage + 1} of ${galleryImages.length}`} style={{ display: "flex", gap: 6, marginBottom: 14 }}>
               {galleryImages.map((_, i) => <span key={i} style={{ width: i === selectedImage ? 18 : 6, height: 6, borderRadius: 6, background: i === selectedImage ? "#fff" : "rgba(255,255,255,.5)", transition: "width .2s" }} />)}
             </div>}
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2.6, marginBottom: 10 }}>KIYUMART · THE EDIT</div>
             <h1 style={{ fontSize: "clamp(25px, 7vw, 36px)", lineHeight: 1.1, maxWidth: 380, margin: "0 0 9px", fontWeight: 600 }}>{product.name}</h1>
             <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 10 }}>
               <strong style={{ fontSize: 20 }}>{formatPrice(sellingPrice)}</strong>
@@ -561,7 +560,6 @@ export default function MobileProductDetails() {
           <button aria-label="Close product options" onClick={() => setEditorialPurchaseOpen(false)} style={{ position: "absolute", top: 18, right: 20, width: 35, height: 35, border: 0, borderRadius: 40, background: edge, color: ink, fontSize: 22 }}>×</button>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
             <div style={{ minWidth: 0 }}>
-              <div style={{ color: brand, fontSize: 10, fontWeight: 800, letterSpacing: 2, marginBottom: 9 }}>KIYUMART EDITORIAL</div>
               <h1 style={{ fontSize: 24, fontWeight: 600, letterSpacing: -0.65, lineHeight: 1.2, margin: 0 }}>{product.name}</h1>
               {rating > 0 && <div style={{ color: subtle, marginTop: 8, fontSize: 12 }}>★ {rating.toFixed(1)} · {product.totalRatings} reviews</div>}
             </div>
