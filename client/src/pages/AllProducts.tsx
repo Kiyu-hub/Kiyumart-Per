@@ -206,7 +206,7 @@ export default function AllProducts() {
   const sectionTitle = section === "featured" ? "Featured picks" : section === "new-arrivals" ? "New arrivals" : "";
   const pageTitle = titleParam || sectionTitle || (categoryParam
     ? (Array.isArray(categories) ? categories : []).find((c: any) => c.slug === categoryParam || c.id === categoryParam)?.name || "Products"
-    : "All Products");
+    : "All products");
 
   const storeNameById = new Map<string, string>(
     (Array.isArray(stores) ? stores : []).map((st: any) => [String(st?.id || ""), String(st?.name || "")]),

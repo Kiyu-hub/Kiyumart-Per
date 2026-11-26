@@ -16,7 +16,7 @@ import {
   FashionProductCard, FashionProductSkeleton, FASHION_CARD_CSS, fashionCardVars,
 } from "@/components/mobile/FashionProductCard";
 import {
-  applyFilters, availableColours, availableSizes, availableTypes, countActiveFilters, discountOf,
+  applyFilters, availableColours, isSoldOut, availableSizes, availableTypes, countActiveFilters, discountOf,
   EMPTY_FILTERS, groupByArrival, pickEditorsPick, priceBounds, priceOf, sortProducts, swatchFor,
   type ListingFilters, type ListingSort,
 } from "@/lib/listing";
@@ -103,6 +103,11 @@ export default function MobileListingView(props: Props) {
   const bounds = useMemo(() => priceBounds(pool), [pool]);
   const shown = useMemo(() => sortProducts(applyFilters(pool, filters), sort), [pool, filters, sort]);
   const activeCount = countActiveFilters(filters);
+  // "All products": biggest discounts on in-stock items (hidden while searching).
+  const deals = useMemo(
+    () => (mode === "all" && !search.trim() ? sortProducts(pool.filter((p) => !isSoldOut(p) && discountOf(p) > 0), "discount").slice(0, 10) : []),
+    [mode, search, pool],
+  );
 
   const toggle = (key: "sizes" | "colours" | "types", value: string) =>
     setFilters((f) => ({ ...f, [key]: f[key].includes(value) ? f[key].filter((v) => v !== value) : [...f[key], value] }));
@@ -129,11 +134,11 @@ export default function MobileListingView(props: Props) {
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 16px 10px", paddingTop: "max(14px, env(safe-area-inset-top, 0px))", background: "var(--ms)" }}>
       {roundBtn("Back", BACK, () => goBack("/"))}
       <h1 style={{ flex: 1, textAlign: withSearchIcon ? "center" : "left", fontSize: 17, fontWeight: 700, margin: 0, color: "var(--mt)" }}>{title}</h1>
-      {withSearchIcon ? roundBtn("Search", SEARCH, () => navigate("/search")) : <span style={{ fontSize: 12, fontWeight: 600, color: "var(--mm)", minWidth: 24, textAlign: "right" }}>{products.length || ""}</span>}
+      {withSearchIcon ? roundBtn("Search", SEARCH, () => navigate("/search")) : <span style={{ fontSize: 13, fontWeight: 600, color: "var(--mm)", textAlign: "right" }}>{products.length ? `${products.length} ${products.length === 1 ? "item" : "items"}` : ""}</span>}
     </div>
   );
 
-  const categoryChips = chips.length > 0 && mode !== "category" && (
+  const categoryChips = chips.length > 0 && mode !== "category" && mode !== "all" && (
     <div className="kml-scroll" style={{ padding: "10px 16px", background: "var(--ms)" }}>
       <button type="button" className="kml-pill" aria-pressed={!selectedChip} onClick={() => onSelectChip(null)}>All</button>
       {chips.map((c: any) => (
@@ -144,7 +149,7 @@ export default function MobileListingView(props: Props) {
 
   // Sticky Sort / Filter bar (+ quick sizes on category pages).
   const toolbar = (
-    <div style={{ position: "sticky", top: 0, zIndex: 15, background: "var(--ms)", borderBottom: "1px solid var(--mo)", paddingTop: "env(safe-area-inset-top, 0px)" }}>
+    <div id="kml-results" style={{ position: "sticky", top: 0, zIndex: 15, background: "var(--ms)", borderBottom: "1px solid var(--mo)", paddingTop: "env(safe-area-inset-top, 0px)", scrollMarginTop: 0 }}>
       <div className="kml-scroll" style={{ padding: "10px 16px", alignItems: "center" }}>
         <button type="button" className="kml-pill" onClick={() => setSheetOpen(true)} aria-label={`Sort: ${SORT_LABELS[sort]}`}>
           <Icon d={SORT} size={15} /> {sort === "newest" ? "Sort" : SORT_LABELS[sort]}
@@ -152,6 +157,9 @@ export default function MobileListingView(props: Props) {
         <button type="button" className="kml-pill" onClick={() => setSheetOpen(true)} aria-pressed={activeCount > 0}>
           <Icon d={FILTER} size={15} /> Filter{activeCount > 0 ? ` · ${activeCount}` : ""}
         </button>
+        {mode === "all" && (
+          <button type="button" className="kml-pill" aria-pressed={filters.inStockOnly} onClick={() => setFilters((f) => ({ ...f, inStockOnly: !f.inStockOnly }))}>In stock</button>
+        )}
         {mode === "category" && sizes.length > 0 && (
           <>
             <span aria-hidden="true" style={{ width: 1, alignSelf: "stretch", background: "var(--mo)", margin: "4px 2px", flex: "none" }} />
@@ -283,16 +291,41 @@ export default function MobileListingView(props: Props) {
       </>
     );
   } else {
+    const shortcuts = chips.filter((c: any) => c?.image);
     head = (
       <>
         {topBar(false)}
         <div style={{ background: "var(--ms)", padding: "0 16px 10px" }}>
           <div style={{ position: "relative" }}>
             <span style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "var(--mm)", display: "grid" }}><Icon d={SEARCH} size={15} /></span>
-            <input value={search} onChange={(e) => onSearch(e.target.value)} placeholder="Search products…" aria-label="Search products"
+            <input value={search} onChange={(e) => onSearch(e.target.value)} placeholder="Search dresses, abayas, shoes…" aria-label="Search products"
               style={{ width: "100%", height: 38, borderRadius: 10, border: "none", background: "var(--msh)", paddingLeft: 34, paddingRight: 12, fontSize: 14, color: "var(--mt)", fontFamily: F, outline: "none", boxSizing: "border-box" }} />
           </div>
         </div>
+        {shortcuts.length > 0 && (
+          <nav aria-label="Categories" className="kml-scroll" style={{ gap: 14, padding: "4px 16px 14px", background: "var(--ms)" }}>
+            {shortcuts.map((c: any) => (
+              <button key={c.id} type="button" onClick={() => navigate(`/products?category=${c.id}`)}
+                style={{ flex: "none", width: 68, background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--mt)", textAlign: "center" }}>
+                <img src={c.image} alt="" loading="lazy" style={{ width: 62, height: 62, borderRadius: 31, objectFit: "cover", display: "block", margin: "0 auto", background: "var(--msh)" }} />
+                <span style={{ display: "block", fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 5 }}>{String(c.name).split(" & ")[0]}</span>
+              </button>
+            ))}
+          </nav>
+        )}
+        {deals.length > 0 && (
+          <section aria-label="Top deals">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "20px 16px 10px" }}>
+              <h2 style={{ fontSize: 18, fontWeight: 800, letterSpacing: -0.3, margin: 0 }}>Top deals</h2>
+              <button type="button" onClick={() => { setSort("discount"); document.getElementById("kml-results")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}
+                style={{ background: "none", border: "none", color: TEAL, fontWeight: 600, fontSize: 13, cursor: "pointer", padding: 4 }}>See all</button>
+            </div>
+            <div className="kml-scroll" style={{ gap: 12, padding: "0 16px 4px" }}>
+              {deals.map((p) => <div key={p.id} style={{ flex: "none", width: 150 }}>{card(p)}</div>)}
+            </div>
+          </section>
+        )}
+        <div style={{ height: 16 }} />
       </>
     );
   }
