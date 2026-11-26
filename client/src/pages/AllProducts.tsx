@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useRef, useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -64,14 +64,19 @@ export default function AllProducts() {
       : addToWishlistMutation.mutate(productId);
   };
   
+  // wouter's `location` is the path only, so read the query string from the
+  // browser. (Reading it from `location` meant ?category= and ?search= from
+  // the homepage were ignored and every product was shown.)
+  const currentSearch = typeof window !== "undefined" ? window.location.search : "";
+
   // Initialize search query from URL parameters
   useEffect(() => {
-    const urlParams = new URLSearchParams(location.split('?')[1] || '');
+    const urlParams = new URLSearchParams(currentSearch);
     const searchParam = urlParams.get('search');
     if (searchParam) {
       setSearchQuery(searchParam);
     }
-  }, [location]);
+  }, [location, currentSearch]);
   
   // Debounce search query to avoid excessive filtering - Reduced for more instant feel
   const debouncedSearchQuery = useDebounce(searchQuery, 150);
@@ -105,6 +110,20 @@ export default function AllProducts() {
       return res.json();
     },
   });
+
+  // Open on the category from the link (?category=<id or slug>), e.g. a
+  // category tapped on the homepage. Applied once per link so tapping "All"
+  // afterwards still works.
+  const appliedCategoryLinkRef = useRef<string | null>(null);
+  useEffect(() => {
+    const wanted = new URLSearchParams(currentSearch).get("category");
+    if (!wanted || appliedCategoryLinkRef.current === currentSearch) return;
+    const list = Array.isArray(categories) ? categories : [];
+    if (list.length === 0) return;
+    const match = list.find((c: any) => c.id === wanted || c.slug === wanted);
+    setSelectedCategory(match ? match.slug : wanted);
+    appliedCategoryLinkRef.current = currentSearch;
+  }, [currentSearch, categories]);
 
   // Stores list — used only to identify which products belong to food vendors
   // so they can be kept out of the generic All Products feed.
@@ -168,11 +187,11 @@ export default function AllProducts() {
   }, [categories, nonFoodProducts]);
 
   // ── Parse URL for category/title context ─────────────────
-  const urlParams = new URLSearchParams(location.split("?")[1] || "");
-  const categoryParam = urlParams.get("category") || selectedCategory;
+  const urlParams = new URLSearchParams(currentSearch);
+  const categoryParam = selectedCategory || urlParams.get("category");
   const titleParam = urlParams.get("title") || "";
   const pageTitle = titleParam || (categoryParam
-    ? availableCategories.find((c: any) => c.slug === categoryParam)?.name || "Products"
+    ? (Array.isArray(categories) ? categories : []).find((c: any) => c.slug === categoryParam || c.id === categoryParam)?.name || "Products"
     : "All Products");
 
   if (isMobile) {
