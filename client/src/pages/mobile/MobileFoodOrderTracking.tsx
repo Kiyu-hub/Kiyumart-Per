@@ -95,7 +95,7 @@ export default function MobileFoodOrderTracking() {
   const orderId = params?.id || params2?.id || '';
   const [, navigate] = useLocation();
   const { user } = useAuth();
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
 
   useEffect(() => {
     const read = () => {

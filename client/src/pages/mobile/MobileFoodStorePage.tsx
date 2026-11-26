@@ -50,7 +50,7 @@ function distanceLabel(km: number | null): string {
 
 export default function MobileFoodStorePage({ storeId, store, products }: MobileFoodStorePageProps) {
   const [, navigate] = useLocation();
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   const [search, setSearch] = useState('');
   const [activeCatId, setActiveCatId] = useState<string>('');
   const tabsRef = useRef<HTMLDivElement | null>(null);

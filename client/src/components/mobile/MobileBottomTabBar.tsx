@@ -63,7 +63,7 @@ export function MobileBottomTabBarClassic() {
   const { trigger: haptic } = useHaptic();
 
   // Theme awareness — read from localStorage, sync with document class
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   useEffect(() => {
     const read = () => {
       const saved = localStorage.getItem("theme");

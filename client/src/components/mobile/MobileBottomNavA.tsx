@@ -112,7 +112,7 @@ export function MobileBottomNavA() {
   const isDrawer = useSingleDrawer();
 
   // Theme awareness — same mechanism as the classic bar.
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   useEffect(() => {
     const read = () => {
       const saved = localStorage.getItem("theme");

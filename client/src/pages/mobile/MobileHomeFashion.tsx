@@ -9,6 +9,7 @@
  * the restaurants section keep the original behaviour. Colours are the
  * existing mobile palette only.
  */
+import { useIsDark, toggleTheme as toggleAppTheme } from "@/lib/theme";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FashionProductCard, FashionProductSkeleton, priceInfo } from "@/components/mobile/FashionProductCard";
 import { useLocation } from "wouter";
@@ -469,19 +470,8 @@ export function MobileHomeFashion({
     || newArrNoFood.length > 0 || generalProducts.length > 0 || localVendorProducts.length > 0;
 
   // Theme toggle — identical behaviour to MobileHome (localStorage 'theme' + html.dark).
-  const [isDark, setIsDark] = useState(true);
-  useEffect(() => {
-    const saved = localStorage.getItem('theme');
-    const dark = saved ? saved === 'dark' : !window.matchMedia('(prefers-color-scheme: light)').matches;
-    setIsDark(dark);
-    document.documentElement.classList.toggle('dark', dark);
-  }, []);
-  const toggleTheme = () => {
-    const next = !isDark;
-    setIsDark(next);
-    localStorage.setItem('theme', next ? 'dark' : 'light');
-    document.documentElement.classList.toggle('dark', next);
-  };
+  const isDark = useIsDark();
+  const toggleTheme = () => { toggleAppTheme(); };
 
   const { data: unreadCount = 0 } = useQuery<number>({
     queryKey: ['/api/notifications/unread-count', user?.id],

@@ -6,6 +6,17 @@
 
     <!-- PWA / Theme — default white so no colored bar appears before platform settings load -->
     <meta name="theme-color" content="#ffffff" />
+    <!-- Apply the saved light/dark choice before anything paints (see src/lib/theme.ts). -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("theme");
+          if (t !== "dark" && t !== "light") t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          document.documentElement.classList.toggle("dark", t === "dark");
+          document.documentElement.style.colorScheme = t;
+        } catch (e) {}
+      })();
+    </script>
     <link rel="manifest" href="/api/public/app-manifest" />
 
     <!-- iOS PWA -->

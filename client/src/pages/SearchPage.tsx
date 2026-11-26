@@ -1,4 +1,6 @@
 import { canGoBackInApp, goBack } from "@/lib/navigation";
+import { useIsDark } from "@/lib/theme";
+import { fashionCardVars } from "@/components/mobile/FashionProductCard";
 import React, { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -91,7 +93,7 @@ function YouMayAlsoLike({ currencySymbol }: { currencySymbol: string }) {
 
 // ── Mobile search result row ──────────────────────────────────────────────────
 const TEAL = '#009688';
-const MUTED_CLR = 'rgba(235,235,245,0.5)';
+const MUTED_CLR = 'var(--mm)'; // theme token (set on the mobile search root)
 const AMBER = '#F59E0B';
 
 function MobileResultRow({
@@ -107,7 +109,7 @@ function MobileResultRow({
       style={{
         display: 'flex', alignItems: 'center', gap: 12,
         padding: '12px 16px', background: 'transparent', border: 'none',
-        borderBottom: '1px solid rgba(255,255,255,0.06)',
+        borderBottom: '1px solid var(--mo)',
         cursor: 'pointer', width: '100%', textAlign: 'left',
         WebkitTapHighlightColor: 'transparent',
       }}
@@ -126,7 +128,7 @@ function MobileResultRow({
 
       {/* Info */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: '#fff', lineHeight: 1.3, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--mt)', lineHeight: 1.3, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {product.name}
         </div>
         {product.description && (
@@ -296,6 +298,7 @@ function readQueryFromAddress(): string {
 }
 
 function MobileSearchPage({ initialQuery: initialQueryProp, onNavigate }: { initialQuery: string; onNavigate: (path: string) => void }) {
+  const isDark = useIsDark();
   const initialQuery = initialQueryProp || readQueryFromAddress();
   const [inputValue, setInputValue] = useState(initialQuery);
   const [debouncedQuery, setDebouncedQuery] = useState(initialQuery);
@@ -445,12 +448,12 @@ function MobileSearchPage({ initialQuery: initialQueryProp, onNavigate }: { init
     <div style={{
       position: 'fixed', inset: 0,
       display: 'flex', flexDirection: 'column',
-      background: '#000', color: '#fff',
+      ...fashionCardVars(isDark), background: 'var(--mb)', color: 'var(--mt)',
       fontFamily: '-apple-system,"SF Pro Text",system-ui,sans-serif',
       zIndex: 50,
     }}>
       {/* ── Sticky header ─────────────────────────────────────────── */}
-      <div style={{ flexShrink: 0, background: '#000' }}>
+      <div style={{ flexShrink: 0, background: 'var(--mb)' }}>
         {/* Status bar spacer */}
         <div style={{ height: 12 }} />
 
@@ -459,19 +462,19 @@ function MobileSearchPage({ initialQuery: initialQueryProp, onNavigate }: { init
           <button
             onClick={handleBack}
             aria-label="Back"
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#fff', display: 'grid', placeItems: 'center', padding: 4, WebkitTapHighlightColor: 'transparent' }}
+            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'var(--mt)', display: 'grid', placeItems: 'center', padding: 4, WebkitTapHighlightColor: 'transparent' }}
           >
-            <ArrowLeft size={22} color="#fff" />
+            <ArrowLeft size={22} color="currentColor" />
           </button>
-          <span style={{ fontSize: 17, fontWeight: 600, color: '#fff' }}>Search</span>
+          <span style={{ fontSize: 17, fontWeight: 600, color: 'var(--mt)' }}>Search</span>
         </div>
 
         {/* Search input */}
         <div style={{ padding: '0 16px 14px' }}>
           <div style={{
             display: 'flex', alignItems: 'center', gap: 10,
-            background: '#1A1A1C', borderRadius: 14, padding: '0 14px',
-            border: '1px solid rgba(255,255,255,0.09)', height: 48,
+            background: 'var(--ms)', borderRadius: 14, padding: '0 14px',
+            border: '1px solid var(--mo)', height: 48,
           }}>
             <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={MUTED_CLR} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
               <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
@@ -491,7 +494,7 @@ function MobileSearchPage({ initialQuery: initialQueryProp, onNavigate }: { init
                 }
               }}
               placeholder="Search for products…"
-              style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 15, fontFamily: 'inherit' }}
+              style={{ flex: 1, background: 'transparent', border: 'none', outline: 'none', color: 'var(--mt)', fontSize: 15, fontFamily: 'inherit' }}
             />
             {inputValue && (
               <button
@@ -527,7 +530,7 @@ function MobileSearchPage({ initialQuery: initialQueryProp, onNavigate }: { init
                 style={{
                   display: 'flex', alignItems: 'center', gap: 12,
                   padding: '13px 16px', background: 'transparent', border: 'none',
-                  borderBottom: '1px solid rgba(255,255,255,0.05)',
+                  borderBottom: '1px solid var(--mo)',
                   cursor: 'pointer', width: '100%', textAlign: 'left',
                   WebkitTapHighlightColor: 'transparent',
                 }}
@@ -535,7 +538,7 @@ function MobileSearchPage({ initialQuery: initialQueryProp, onNavigate }: { init
                 <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={MUTED_CLR} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                   <circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" />
                 </svg>
-                <span style={{ flex: 1, fontSize: 14, color: '#fff' }}>{q}</span>
+                <span style={{ flex: 1, fontSize: 14, color: 'var(--mt)' }}>{q}</span>
                 <span
                   role="button"
                   onClick={(e) => handleRemoveHistory(q, e)}
@@ -554,7 +557,7 @@ function MobileSearchPage({ initialQuery: initialQueryProp, onNavigate }: { init
             <svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={MUTED_CLR} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 16 }}>
               <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" />
             </svg>
-            <div style={{ fontSize: 17, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Search products</div>
+            <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--mt)', marginBottom: 8 }}>Search products</div>
             <div style={{ fontSize: 14, color: MUTED_CLR }}>Type to find products across all categories</div>
           </div>
         )}
@@ -578,7 +581,7 @@ function MobileSearchPage({ initialQuery: initialQueryProp, onNavigate }: { init
         {!showHistory && !isLoading && debouncedQuery.trim() && results.length === 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '60px 32px' }}>
             <SearchX size={48} color={MUTED_CLR} style={{ marginBottom: 16 }} />
-            <div style={{ fontSize: 17, fontWeight: 600, color: '#fff', marginBottom: 8 }}>No results found</div>
+            <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--mt)', marginBottom: 8 }}>No results found</div>
             <div style={{ fontSize: 14, color: MUTED_CLR }}>
               Nothing matched "{debouncedQuery}". Try different keywords.
             </div>

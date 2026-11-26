@@ -147,7 +147,7 @@ export default function MobileProductDetails() {
   const productId = params?.id || "";
   const sourceRef = useRef(new URLSearchParams(location.split("?")[1] || "").get("from") || "");
 
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
   useEffect(() => {
     const read = () => {
       const s = localStorage.getItem("theme");

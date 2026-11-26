@@ -41,7 +41,7 @@ function MobileWishlistView({ wishlistProducts, isLoading, isAuthenticated, auth
 }) {
   const [, navigate] = useLocation();
   const F = '-apple-system,"SF Pro Text","SF Pro",system-ui,sans-serif';
-  const [isDark, setIsDark] = useState(true);
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains('dark'));
 
   useEffect(() => {
     const s = localStorage.getItem('theme');
