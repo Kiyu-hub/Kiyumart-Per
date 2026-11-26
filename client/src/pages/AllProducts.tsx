@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Filter, ShoppingBag, Loader2 } from "lucide-react";
 import MarketplaceBannerCarousel from "@/components/MarketplaceBannerCarousel";
 import { useDebounce } from "@/hooks/useDebounce";
-import { FashionProductCard, FashionProductSkeleton, FASHION_CARD_CSS, fashionCardVars } from "@/components/mobile/FashionProductCard";
+import MobileListingView, { type ListingMode } from "@/components/mobile/MobileListingView";
 import { getProductCategoryLabel, productMatchesCategory } from "@/lib/categoryUtils";
 import { excludeFoodVendorProducts, getFoodStoreIdSet } from "@/lib/foodVendors";
 import { useMobileDevice } from "@/hooks/useMobileDevice";
@@ -214,114 +214,32 @@ export default function AllProducts() {
   const storeNameFor = (p: any) => storeNameById.get(String(p?.storeId || "")) || null;
 
   if (isMobile) {
-    const F = '-apple-system,"SF Pro Text","SF Pro",system-ui,sans-serif';
     const isDarkVal = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
-    const bg    = isDarkVal ? "#111111" : "#F2F2F7";
-    const card  = isDarkVal ? "#1C1C1E" : "#FFFFFF";
-    const hdr   = isDarkVal ? "#111111" : "#FFFFFF";
-    const bdr   = isDarkVal ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
-    const txt   = isDarkVal ? "#FFFFFF" : "#111111";
-    const muted = isDarkVal ? "rgba(235,235,245,0.45)" : "rgba(60,60,67,0.45)";
-    const inp   = isDarkVal ? "#2C2C2E" : "#EBEBF0";
-    const accent = "#009688";
-    const skel   = isDarkVal ? "#2C2C2E" : "#E5E5EA";
-
     const isFiltered = Boolean(section || selectedCategory || debouncedSearchQuery.trim());
     const displayProducts = filteredProducts.length > 0 || isFiltered ? filteredProducts : nonFoodFeatured;
-
+    const urlCategory = urlParams.get("category");
+    const categoryObj = urlCategory
+      ? (Array.isArray(categories) ? categories : []).find((c: any) => c.slug === urlCategory || c.id === urlCategory) || null
+      : null;
+    const mode: ListingMode = section ?? (urlCategory ? "category" : "all");
     return (
-      <div style={{ minHeight: "100dvh", background: bg, fontFamily: F, paddingBottom: "calc(80px + env(safe-area-inset-bottom, 0px))" }}>
-        {/* Sticky header */}
-        <div style={{
-          position: "sticky", top: 0, zIndex: 20, background: hdr,
-          borderBottom: `1px solid ${bdr}`,
-          paddingLeft: 16, paddingRight: 16, paddingBottom: 10,
-          paddingTop: "max(14px, env(safe-area-inset-top, 14px))",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
-            <button onClick={() => navigate(-1 as any)} style={{ width: 34, height: 34, borderRadius: 17, background: inp, border: "none", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0, WebkitTapHighlightColor: "transparent" }}>
-              <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke={txt} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
-            </button>
-            <span style={{ flex: 1, fontSize: 17, fontWeight: 700, color: txt }}>{pageTitle}</span>
-            {displayProducts.length > 0 && (
-              <span style={{ fontSize: 12, color: muted, fontWeight: 600 }}>{displayProducts.length}</span>
-            )}
-          </div>
-          {/* Search */}
-          <div style={{ position: "relative" }}>
-            <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke={muted} strokeWidth={2} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }}><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
-            <input
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search products…"
-              style={{ width: "100%", height: 36, borderRadius: 10, border: "none", background: inp, paddingLeft: 34, paddingRight: 12, fontSize: 14, color: txt, fontFamily: F, outline: "none", boxSizing: "border-box" }}
-            />
-          </div>
-        </div>
-
-        {/* Category pills */}
-        {availableCategories.length > 0 && (
-          <div style={{ display: "flex", gap: 8, overflowX: "auto", padding: "10px 12px 2px", scrollbarWidth: "none" }}>
-            <button
-              onClick={() => setSelectedCategory(null)}
-              style={{
-                flexShrink: 0, padding: "6px 14px", borderRadius: 20,
-                border: `1.5px solid ${!selectedCategory ? accent : bdr}`,
-                background: !selectedCategory ? accent : inp,
-                color: !selectedCategory ? "#fff" : txt,
-                fontSize: 12, fontWeight: !selectedCategory ? 700 : 500, cursor: "pointer",
-                fontFamily: F, WebkitTapHighlightColor: "transparent",
-              }}
-            >All</button>
-            {availableCategories.map((cat: any) => {
-              const active = selectedCategory === cat.slug;
-              return (
-                <button
-                  key={cat.id}
-                  onClick={() => setSelectedCategory(active ? null : cat.slug)}
-                  style={{
-                    flexShrink: 0, padding: "6px 14px", borderRadius: 20,
-                    border: `1.5px solid ${active ? accent : bdr}`,
-                    background: active ? accent : inp,
-                    color: active ? "#fff" : txt,
-                    fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer",
-                    fontFamily: F, WebkitTapHighlightColor: "transparent",
-                  }}
-                >{cat.name}</button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Product grid — same card as the homepage (FashionProductCard) */}
-        <style>{FASHION_CARD_CSS}</style>
-        <div style={{ ...fashionCardVars(isDarkVal), padding: "12px 16px 0" } as React.CSSProperties}>
-          {isLoading ? (
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: "18px 12px" }}>
-              {Array.from({ length: 6 }).map((_, i) => <FashionProductSkeleton key={i} />)}
-            </div>
-          ) : displayProducts.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "60px 20px", color: muted }}>
-              <svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={muted} strokeWidth={1.5} style={{ margin: "0 auto 12px" }}><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z" /><line x1="3" y1="6" x2="21" y2="6" /><path d="M16 10a4 4 0 0 1-8 0" /></svg>
-              <p style={{ fontSize: 16, fontWeight: 600, color: txt, marginBottom: 4 }}>No products found</p>
-              <p style={{ fontSize: 13 }}>Try a different search or category</p>
-            </div>
-          ) : (
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: "18px 12px" }}>
-              {displayProducts.map((product: any) => (
-                <FashionProductCard
-                  key={product.id}
-                  product={product}
-                  storeName={storeNameFor(product)}
-                  isWishlisted={wishlist.some((w: any) => w.productId === product.id)}
-                  onToggleWishlist={handleToggleWishlist}
-                  onClick={() => navigate(`/product/${product.id}`)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+      <MobileListingView
+        key={`${mode}:${urlCategory || ""}`}
+        mode={mode}
+        title={pageTitle}
+        products={displayProducts}
+        isLoading={isLoading}
+        category={categoryObj}
+        chips={availableCategories}
+        selectedChip={selectedCategory}
+        onSelectChip={setSelectedCategory}
+        search={searchQuery}
+        onSearch={setSearchQuery}
+        isWishlisted={(id) => wishlist.some((w: any) => w.productId === id)}
+        onToggleWishlist={handleToggleWishlist}
+        storeNameFor={storeNameFor}
+        isDark={isDarkVal}
+      />
     );
   }
 

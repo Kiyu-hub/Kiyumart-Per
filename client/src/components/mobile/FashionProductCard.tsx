@@ -42,10 +42,12 @@ export function priceInfo(product: any) {
 
 // ── Fashion product card: 3:4 portrait, round heart, store name, real ratings only ──
 export function FashionProductCard({
-  product, storeName, isWishlisted, onToggleWishlist, onClick,
+  product, storeName, isWishlisted, onToggleWishlist, onClick, tag,
 }: {
   product: any; storeName?: string | null; isWishlisted: boolean;
   onToggleWishlist: (id: string) => void; onClick: () => void;
+  /** "new": teal NEW tag instead of the discount badge (just-arrived items). */
+  tag?: 'new';
 }) {
   const images = Array.isArray(product?.images) ? product.images : [product?.images];
   const { price, disc, was } = priceInfo(product);
@@ -85,7 +87,17 @@ export function FashionProductCard({
           </>
         )}
 
-        {disc > 0 && !soldOut && (
+        {tag === 'new' && !soldOut && (
+          <div style={{
+            position: 'absolute', top: 8, left: 8,
+            background: TEAL, color: '#fff',
+            fontSize: 10, fontWeight: 800, padding: '3px 7px', borderRadius: 6, letterSpacing: 0.4,
+          }}>
+            NEW
+          </div>
+        )}
+
+        {disc > 0 && !soldOut && tag !== 'new' && (
           <div style={{
             position: 'absolute', top: 8, left: 8,
             background: C_RED, color: '#fff',
