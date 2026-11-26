@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useIsDark } from "@/lib/theme";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -253,6 +254,7 @@ function MobileReferralPage({ stats }: { stats?: ReferralStats }) {
 }
 
 export default function ReferralPage() {
+  const isDark = useIsDark();
   const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [, navigate] = useLocation();
   const { referralEnabled } = usePlatformSettings();
