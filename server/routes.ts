@@ -24806,7 +24806,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/categories/:id/approve", requireAuth, requireRole("super_admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
+  app.post("/api/categories/:id/approve", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
     try {
       const updated = await storage.updateCategory(req.params.id, { isActive: true });
       if (!updated) {
@@ -24860,7 +24860,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/categories/:id/reject", requireAuth, requireRole("super_admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
+  app.post("/api/categories/:id/reject", requireAuth, requireRole("admin", "super_admin"), requirePermission("manage_categories"), async (req: AuthRequest, res) => {
     try {
       const category = await storage.getCategory(req.params.id);
       if (!category) {
