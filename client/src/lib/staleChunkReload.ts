@@ -41,7 +41,7 @@ async function clearCaches(all: boolean) {
       const names = await caches.keys();
       await Promise.all(
         names
-          .filter((n) => all || /precache|html-cache|pages/i.test(n))
+          .filter((n) => all || /precache|html-cache|pages|page-chunks/i.test(n))
           .map((n) => caches.delete(n)),
       );
     }
@@ -100,6 +100,9 @@ export function retryImport<T>(load: () => Promise<T>): () => Promise<T> {
 
 export function installStaleChunkReload(): void {
   if (typeof window === "undefined") return;
+  // The old code-file cache could hold an HTML page saved under a code file's
+  // name; it was replaced by "page-chunks-v2", so drop it.
+  try { if ("caches" in window) void caches.delete("page-chunks").catch(() => undefined); } catch { /* ignore */ }
   // Vite fires this when a dynamic import's preload fails.
   window.addEventListener("vite:preloadError", (event) => {
     if (reloadForStaleChunk()) event.preventDefault();

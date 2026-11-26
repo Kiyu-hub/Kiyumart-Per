@@ -79,9 +79,20 @@ export default defineConfig({
               sameOrigin && url.pathname.startsWith("/assets/") && /\.(?:js|css|woff2?)$/.test(url.pathname),
             handler: "CacheFirst",
             options: {
-              cacheName: "page-chunks",
+              // v2: older caches could hold the start page saved under a code
+              // file's name (HTML served for a missing file), which breaks pages.
+              cacheName: "page-chunks-v2",
               expiration: { maxEntries: 400, maxAgeSeconds: 60 * 60 * 24 * 30 },
               cacheableResponse: { statuses: [200] },
+              plugins: [
+                {
+                  // Only keep real code, style and font files — never an HTML page.
+                  cacheWillUpdate: async ({ response }: { response: Response }) =>
+                    response && response.status === 200 && !/text\/html/i.test(response.headers.get("content-type") || "")
+                      ? response
+                      : null,
+                },
+              ],
             },
           },
           {
