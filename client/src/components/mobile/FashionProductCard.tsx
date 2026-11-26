@@ -52,6 +52,8 @@ export function FashionProductCard({
   const rating      = parseFloat((product as any)?.ratings ?? (product as any)?.averageRating ?? '0');
   const ratingCount = Number((product as any)?.totalRatings ?? (product as any)?.reviewCount ?? 0);
   const hasRating   = rating > 0 && ratingCount > 0;
+  // Only a known stock of 0 counts as sold out (missing stock data is not).
+  const soldOut = product?.stock !== undefined && product?.stock !== null && Number(product.stock) <= 0;
 
   return (
     <div
@@ -71,7 +73,19 @@ export function FashionProductCard({
               <svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke={MM} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 7h14l-1 13H6z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg>
             </div>}
 
-        {disc > 0 && (
+        {soldOut && (
+          <>
+            <div aria-hidden="true" style={{ position: 'absolute', inset: 0, background: 'rgba(255,255,255,0.45)' }} />
+            <div style={{
+              position: 'absolute', left: 8, bottom: 8, background: '#111111', color: '#fff',
+              fontSize: 10.5, fontWeight: 700, padding: '4px 8px', borderRadius: 6,
+            }}>
+              Sold out
+            </div>
+          </>
+        )}
+
+        {disc > 0 && !soldOut && (
           <div style={{
             position: 'absolute', top: 8, left: 8,
             background: C_RED, color: '#fff',
