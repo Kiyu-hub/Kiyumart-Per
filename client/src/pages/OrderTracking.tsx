@@ -1,3 +1,5 @@
+import { canGoBackInApp, goBack } from "@/lib/navigation";
+import { lazyWithRetry } from "@/lib/staleChunkReload";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -26,7 +28,7 @@ import React from "react";
 
 // Bolt-style mobile tracker for food orders. Lazy-loaded so non-food / desktop
 // orders don't pay for it.
-const MobileFoodOrderTracking = React.lazy(() => import("@/pages/mobile/MobileFoodOrderTracking"));
+const MobileFoodOrderTracking = lazyWithRetry(() => import("@/pages/mobile/MobileFoodOrderTracking"));
 
 interface Order {
   id: string;
@@ -161,8 +163,8 @@ function OrderTrackingMain() {
   const [riderLocations, setRiderLocations] = useState<Map<string, RiderLocation>>(new Map());
   const socketRef = useRef<Socket | null>(null);
   const goBack = () => {
-    if (typeof window !== "undefined" && window.history.length > 1) {
-      window.history.back();
+    if (canGoBackInApp()) {
+      goBack();
       return;
     }
     navigate(isSingleOrderMode ? "/orders" : "/");

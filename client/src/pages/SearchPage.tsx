@@ -1,3 +1,4 @@
+import { canGoBackInApp, goBack } from "@/lib/navigation";
 import React, { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -329,12 +330,7 @@ function MobileSearchPage({ initialQuery: initialQueryProp, onNavigate }: { init
 
   // Back: when opened from inside the app (e.g. the home search bar adds from=home),
   // go back to that screen instead of pushing a new copy of the home page.
-  const handleBack = () => {
-    let fromApp = false;
-    try { fromApp = !!new URLSearchParams(window.location.search).get('from'); } catch { /* ignore */ }
-    if (fromApp && window.history.length > 1) window.history.back();
-    else onNavigate('/');
-  };
+  const handleBack = () => goBack('/');
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(inputValue), 350);

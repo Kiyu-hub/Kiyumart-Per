@@ -1,3 +1,4 @@
+import { canGoBackInApp, goBack } from "@/lib/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -595,8 +596,8 @@ export default function SellerOrders() {
   const focusedOrderId = referencedOrder?.id ?? null;
   const isOrderDetailsMode = Boolean(orderIdFromPath);
   const goBack = () => {
-    if (typeof window !== "undefined" && window.history.length > 1) {
-      window.history.back();
+    if (canGoBackInApp()) {
+      goBack();
       return;
     }
     navigate(orderContext === "buyer" ? "/seller/personal-orders" : "/seller/orders");

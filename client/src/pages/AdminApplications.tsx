@@ -1,3 +1,4 @@
+import { goBack } from "@/lib/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
@@ -860,7 +861,7 @@ export default function AdminApplications() {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => window.history.back()}
+                onClick={() => goBack()}
                 data-testid="button-back"
                 className="shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/60 dark:text-white/70 dark:hover:text-white dark:hover:bg-white/10"
               >

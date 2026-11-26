@@ -1,4 +1,5 @@
-import { useEffect, useState, lazy, Suspense } from "react";
+import { lazyWithRetry } from "@/lib/staleChunkReload";
+import { useEffect, useState, Suspense } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
@@ -17,7 +18,7 @@ import type { Product } from "@shared/schema";
 import { isFoodVendorStore } from "@/lib/foodVendors";
 
 // Bolt-style restaurant detail page for mobile food vendors.
-const MobileFoodStorePage = lazy(() => import("@/pages/mobile/MobileFoodStorePage"));
+const MobileFoodStorePage = lazyWithRetry(() => import("@/pages/mobile/MobileFoodStorePage"));
 
 const TEAL = '#009688';
 const F = '-apple-system,"SF Pro Text","SF Pro",system-ui,sans-serif';

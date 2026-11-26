@@ -1,4 +1,5 @@
-import { useEffect, lazy, Suspense } from "react";
+import { lazyWithRetry } from "@/lib/staleChunkReload";
+import { useEffect, Suspense } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
@@ -15,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { DollarSign, Package, MapPin, Star, Loader2, TrendingUp, Calendar } from "lucide-react";
 
-const RiderLiveMap = lazy(() => import("@/components/RiderLiveMap"));
+const RiderLiveMap = lazyWithRetry(() => import("@/components/RiderLiveMap"));
 
 interface Order {
   id: string;

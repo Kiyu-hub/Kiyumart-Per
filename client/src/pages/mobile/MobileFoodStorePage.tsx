@@ -1,3 +1,4 @@
+import { goBack } from "@/lib/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -203,7 +204,7 @@ export default function MobileFoodStorePage({ storeId, store, products }: Mobile
           paddingTop: 'max(14px, env(safe-area-inset-top, 14px))',
         }}>
           <button
-            onClick={() => { if (typeof window !== 'undefined' && window.history.length > 1) window.history.back(); else navigate('/'); }}
+            onClick={() => { goBack('/'); }}
             style={{
               width: 38, height: 38, borderRadius: 19,
               background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(6px)',

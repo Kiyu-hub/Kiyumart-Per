@@ -916,7 +916,7 @@ export function MobileHomeFashion({
       {/* Featured picks — horizontal rail */}
       {showFeatured && (
         <section className="kmf-fade">
-          <SectionHeader title="Featured picks" onAction={() => navigate('/products')} />
+          <SectionHeader title="Featured picks" onAction={() => navigate('/products?section=featured')} />
           <div className="kmf-rail">
             {loading
               ? Array.from({ length: 3 }).map((_, i) => <div key={i} style={{ flex: 'none', width: 152 }}><FashionProductSkeleton /></div>)
@@ -938,7 +938,7 @@ export function MobileHomeFashion({
       {/* New arrivals — two-column grid */}
       {showNewArrivals && (
         <section className="kmf-fade">
-          <SectionHeader title="New arrivals" onAction={() => navigate('/products?sort=newest')} />
+          <SectionHeader title="New arrivals" onAction={() => navigate('/products?section=new-arrivals')} />
           <div style={{ padding: '0 16px', display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: '18px 12px' }}>
             {loading
               ? Array.from({ length: 4 }).map((_, i) => <FashionProductSkeleton key={i} />)

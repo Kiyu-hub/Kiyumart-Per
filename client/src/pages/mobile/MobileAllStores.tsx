@@ -1,4 +1,5 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿import { goBack } from "@/lib/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
@@ -99,7 +100,7 @@ export default function MobileAllStores() {
         {/* Title row */}
         <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 44 }}>
           <button
-            onClick={() => { if (typeof window !== 'undefined' && window.history.length > 1) window.history.back(); else navigate('/'); }}
+            onClick={() => { goBack('/'); }}
             style={{
               position: 'absolute', left: 0,
               width: 34, height: 34, borderRadius: 17,

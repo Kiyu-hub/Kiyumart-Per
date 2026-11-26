@@ -1,3 +1,4 @@
+import { goBack } from "@/lib/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -270,7 +271,7 @@ export default function MobileFoodDetail() {
           <Header />
           <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 pt-4">
             <button
-              onClick={() => { if (typeof window !== 'undefined' && window.history.length > 1) window.history.back(); else navigate('/products'); }}
+              onClick={() => { goBack('/products'); }}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: muted, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F, fontSize: 14, padding: 0 }}
             >
               <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
@@ -307,7 +308,7 @@ export default function MobileFoodDetail() {
           padding: '14px 16px',
           paddingTop: 'max(14px, env(safe-area-inset-top, 14px))',
         }}>
-          <FloatButton onClick={() => { if (typeof window !== 'undefined' && window.history.length > 1) window.history.back(); else navigate('/'); }}>
+          <FloatButton onClick={() => { goBack('/'); }}>
             <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
           </FloatButton>
           <div style={{ display: 'flex', gap: 10 }}>

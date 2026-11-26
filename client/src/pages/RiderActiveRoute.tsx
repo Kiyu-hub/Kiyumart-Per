@@ -1,4 +1,5 @@
-import { useState, lazy, Suspense, useEffect } from "react";
+import { lazyWithRetry } from "@/lib/staleChunkReload";
+import { useState, Suspense, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -21,8 +22,8 @@ import UserAvatar from "@/components/UserAvatar";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 // Lazy load heavy map components
-const RiderNavigationMap = lazy(() => import("@/components/RiderNavigationMap"));
-const DeliveryQRScanner = lazy(() => import("@/components/DeliveryQRScanner"));
+const RiderNavigationMap = lazyWithRetry(() => import("@/components/RiderNavigationMap"));
+const DeliveryQRScanner = lazyWithRetry(() => import("@/components/DeliveryQRScanner"));
 
 interface ActiveDelivery {
   id: string;

@@ -68,6 +68,10 @@ export default function AllProducts() {
   // browser. (Reading it from `location` meant ?category= and ?search= from
   // the homepage were ignored and every product was shown.)
   const currentSearch = typeof window !== "undefined" ? window.location.search : "";
+  // ?section=featured / ?section=new-arrivals: the homepage "See all" links.
+  const sectionParam = new URLSearchParams(currentSearch).get("section");
+  const section: "featured" | "new-arrivals" | null =
+    sectionParam === "featured" || sectionParam === "new-arrivals" ? sectionParam : null;
 
   // Initialize search query from URL parameters
   useEffect(() => {
@@ -167,7 +171,11 @@ export default function AllProducts() {
 
   // Use debounced search query for filtering
   const filteredProducts = useMemo(() => {
-    return nonFoodProducts.filter((product) => {
+    const inSection = (product: any) =>
+      !section ||
+      (section === "featured" ? Boolean(product?.dynamicFields?.homepageFeatured) : Boolean(product?.dynamicFields?.homepageNewArrival));
+    const list = nonFoodProducts.filter((product) => {
+      if (!inSection(product)) return false;
       const categoryLabel = getProductCategoryLabel(product).toLowerCase();
       const matchesSearch =
         product.name.toLowerCase().includes(debouncedSearchQuery.toLowerCase()) ||
@@ -177,7 +185,11 @@ export default function AllProducts() {
         productMatchesCategory(product, (Array.isArray(categories) ? categories : []).find((c: any) => c.slug === selectedCategory) || { slug: selectedCategory });
       return matchesSearch && matchesCategory;
     });
-  }, [nonFoodProducts, debouncedSearchQuery, selectedCategory, categories]);
+    if (section === "new-arrivals") {
+      list.sort((a: any, b: any) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime());
+    }
+    return list;
+  }, [nonFoodProducts, debouncedSearchQuery, selectedCategory, categories, section]);
 
   const availableCategories = useMemo(() => {
     return categories.filter((category: any) =>
@@ -190,7 +202,8 @@ export default function AllProducts() {
   const urlParams = new URLSearchParams(currentSearch);
   const categoryParam = selectedCategory || urlParams.get("category");
   const titleParam = urlParams.get("title") || "";
-  const pageTitle = titleParam || (categoryParam
+  const sectionTitle = section === "featured" ? "Featured picks" : section === "new-arrivals" ? "New arrivals" : "";
+  const pageTitle = titleParam || sectionTitle || (categoryParam
     ? (Array.isArray(categories) ? categories : []).find((c: any) => c.slug === categoryParam || c.id === categoryParam)?.name || "Products"
     : "All Products");
 
@@ -207,7 +220,8 @@ export default function AllProducts() {
     const accent = "#009688";
     const skel   = isDarkVal ? "#2C2C2E" : "#E5E5EA";
 
-    const displayProducts = filteredProducts.length > 0 ? filteredProducts : nonFoodFeatured;
+    const isFiltered = Boolean(section || selectedCategory || debouncedSearchQuery.trim());
+    const displayProducts = filteredProducts.length > 0 || isFiltered ? filteredProducts : nonFoodFeatured;
 
     return (
       <div style={{ minHeight: "100dvh", background: bg, fontFamily: F, paddingBottom: "calc(80px + env(safe-area-inset-bottom, 0px))" }}>

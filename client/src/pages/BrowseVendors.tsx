@@ -1,3 +1,4 @@
+import { lazyWithRetry } from "@/lib/staleChunkReload";
 /**
  * BrowseVendors — desktop "See all Local Vendors & Restaurants" page.
  *
@@ -10,7 +11,7 @@
  * here too — we transparently render the mobile page so the experience stays
  * native-feeling. This is the same pattern used on /product/:id.
  */
-import { lazy, Suspense, useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import Header from "@/components/Header";
@@ -32,7 +33,7 @@ import {
 } from "@/lib/foodVendors";
 import { Search, UtensilsCrossed, ChevronRight, Star, MapPin } from "lucide-react";
 
-const MobileAllVendors = lazy(() => import("@/pages/mobile/MobileAllVendors"));
+const MobileAllVendors = lazyWithRetry(() => import("@/pages/mobile/MobileAllVendors"));
 
 type Tab = "all" | "local_vendor" | "restaurant";
 
