@@ -83,6 +83,9 @@ const Label = ({ children }: { children: ReactNode }) => (
   <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.4, color: "var(--mm)", textTransform: "uppercase", margin: "18px 0 8px" }}>{children}</div>
 );
 
+/** Styles the Sort & filter sheet needs (pills, price range, slide-up). */
+export const LISTING_CSS = CSS;
+
 export default function MobileListingView(props: Props) {
   const { mode, title, products, isLoading, category, chips, selectedChip, onSelectChip, search, onSearch, isWishlisted, onToggleWishlist, storeNameFor, isDark } = props;
   const [, navigate] = useLocation();
@@ -350,7 +353,7 @@ export default function MobileListingView(props: Props) {
   );
 }
 
-function FilterSheet({ sort, filters, sizes, colours, types, bounds, countFor, onClose, onApply }: {
+export function FilterSheet({ sort, filters, sizes, colours, types, bounds, countFor, onClose, onApply }: {
   sort: ListingSort; filters: ListingFilters; sizes: string[]; colours: string[]; types: string[];
   bounds: { min: number; max: number } | null;
   countFor: (f: ListingFilters) => number;
