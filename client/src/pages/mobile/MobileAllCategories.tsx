@@ -91,7 +91,7 @@ export default function MobileAllCategories() {
               <path d="m15 18-6-6 6-6" />
             </svg>
           </button>
-          <span style={{ fontSize: 16, fontWeight: 700, color: txt }}>All Category</span>
+          <span style={{ fontSize: 16, fontWeight: 700, color: txt }}>All categories</span>
         </div>
 
         <div style={{ marginTop: 10, background: inp, borderRadius: 12, position: 'relative', display: 'flex', alignItems: 'center' }}>
