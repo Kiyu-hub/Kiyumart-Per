@@ -179,6 +179,10 @@ export default function AdminCategoryManager() {
     },
   });
 
+  // Admins and the super admin both review seller category requests (the
+  // server also checks the manage_categories permission).
+  const canReviewCategories = user?.role === "super_admin" || user?.role === "admin";
+
   const approveMutation = useMutation({
     mutationFn: async (id: string) => {
       const response = await apiRequest("POST", `/api/categories/${id}/approve`);
@@ -365,7 +369,7 @@ export default function AdminCategoryManager() {
               <p className="text-muted-foreground mt-2">
                 Manage product categories displayed on the homepage
               </p>
-              {user?.role === "super_admin" && (
+              {canReviewCategories && (
                 <p className="text-sm text-muted-foreground mt-1">
                   Seller-submitted categories stay hidden until an admin approves them.
                 </p>
@@ -390,7 +394,7 @@ export default function AdminCategoryManager() {
             </div>
           </div>
 
-          {user?.role === "super_admin" && (
+          {canReviewCategories && (
             <Tabs
               value={activeTab}
               onValueChange={(value) =>
@@ -488,7 +492,7 @@ export default function AdminCategoryManager() {
                         )}
                         
                         <div className="flex gap-2">
-                          {user?.role === "super_admin" && !category.isActive && (
+                          {canReviewCategories && !category.isActive && (
                             <Button
                               variant="default"
                               size="sm"
@@ -500,7 +504,7 @@ export default function AdminCategoryManager() {
                               Approve
                             </Button>
                           )}
-                          {user?.role === "super_admin" && !category.isActive && (
+                          {canReviewCategories && !category.isActive && (
                             <Button
                               variant="destructive"
                               size="sm"

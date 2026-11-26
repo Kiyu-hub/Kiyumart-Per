@@ -85,6 +85,22 @@ function buildProductSpecs(product: { dynamicFields?: Record<string, unknown>; d
   return rows;
 }
 
+// Sizes always run smallest → largest: letter sizes in clothing order, then
+// numbers (shoe/dress sizes), then ages/months; unknown labels keep their order.
+const LETTER_SIZE_ORDER = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "2XL", "XXXL", "3XL", "4XL", "5XL", "FREE SIZE", "ONE SIZE"];
+const sizeRank = (label: string): [number, number] => {
+  const t = label.trim().toUpperCase();
+  const letter = LETTER_SIZE_ORDER.indexOf(t);
+  if (letter >= 0) return [0, letter];
+  const num = parseFloat(t.replace(/[^0-9.]/g, ""));
+  if (Number.isFinite(num)) return [t.includes("M") && /\d\s*-\s*\d/.test(t) ? 1 : t.includes("Y") ? 2 : 1, num];
+  return [3, 0];
+};
+const sortSizes = (sizes: string[]) =>
+  sizes.map((s, i) => ({ s, i, r: sizeRank(s) }))
+    .sort((a, b) => a.r[0] - b.r[0] || a.r[1] - b.r[1] || a.i - b.i)
+    .map((x) => x.s);
+
 interface WishlistItem { id: string; userId: string; productId: string; createdAt: string; }
 
 const VARIANT_COLOR_PRESETS: Record<string, string> = {
@@ -249,13 +265,13 @@ export default function MobileProductDetails() {
 
   const selectedColor = String(selectedColorGroup?.color || selectedVariantBase?.color || "").trim();
 
-  const sizeOptions = Array.from(new Set(
+  const sizeOptions = sortSizes(Array.from(new Set(
     (selectedColorGroup?.sizes?.length
       ? selectedColorGroup.sizes
       : variants.filter(v => !selectedColor || String(v.color || "").trim().toLowerCase() === selectedColor.toLowerCase())
           .flatMap(v => splitSizes(v.size))
     ).filter(Boolean)
-  ));
+  )));
 
   const selectedSize = selectedSizeOption || sizeOptions[0] || splitSizes(selectedVariantBase?.size)[0] || "";
 
@@ -529,7 +545,6 @@ export default function MobileProductDetails() {
             {galleryImages.length > 1 && <div aria-label={`Photo ${selectedImage + 1} of ${galleryImages.length}`} style={{ display: "flex", gap: 6, marginBottom: 14 }}>
               {galleryImages.map((_, i) => <span key={i} style={{ width: i === selectedImage ? 18 : 6, height: 6, borderRadius: 6, background: i === selectedImage ? "#fff" : "rgba(255,255,255,.5)", transition: "width .2s" }} />)}
             </div>}
-            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: 2.6, marginBottom: 10 }}>KIYUMART · THE EDIT</div>
             <h1 style={{ fontSize: "clamp(25px, 7vw, 36px)", lineHeight: 1.1, maxWidth: 380, margin: "0 0 9px", fontWeight: 600 }}>{product.name}</h1>
             <div style={{ display: "flex", alignItems: "baseline", flexWrap: "wrap", gap: 10 }}>
               <strong style={{ fontSize: 20 }}>{formatPrice(sellingPrice)}</strong>
@@ -545,7 +560,6 @@ export default function MobileProductDetails() {
           <button aria-label="Close product options" onClick={() => setEditorialPurchaseOpen(false)} style={{ position: "absolute", top: 18, right: 20, width: 35, height: 35, border: 0, borderRadius: 40, background: edge, color: ink, fontSize: 22 }}>×</button>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
             <div style={{ minWidth: 0 }}>
-              <div style={{ color: brand, fontSize: 10, fontWeight: 800, letterSpacing: 2, marginBottom: 9 }}>KIYUMART EDITORIAL</div>
               <h1 style={{ fontSize: 24, fontWeight: 600, letterSpacing: -0.65, lineHeight: 1.2, margin: 0 }}>{product.name}</h1>
               {rating > 0 && <div style={{ color: subtle, marginTop: 8, fontSize: 12 }}>★ {rating.toFixed(1)} · {product.totalRatings} reviews</div>}
             </div>
@@ -609,10 +623,10 @@ export default function MobileProductDetails() {
           <section role="dialog" data-fullscreen="" aria-modal="true" aria-label="Size and fit guide" onClick={e => e.stopPropagation()} style={{ width: "100%", maxHeight: "80dvh", overflowY: "auto", background: paper, borderRadius: "24px 24px 0 0", padding: "26px 22px max(30px, env(safe-area-inset-bottom, 30px))" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><h2 style={{ margin: 0, fontSize: 23 }}>Size & fit</h2><button onClick={() => setEditorialSizeGuideOpen(false)} aria-label="Close" style={{ border: 0, background: edge, borderRadius: "50%", width: 36, height: 36, color: ink }}>×</button></div>
             {measurementGuide
-              ? <MeasurementGuideView data={measurementGuide} initialSize={selectedSize} ink={ink} subtle={subtle} edge={edge} brand={brand} />
+              ? <MeasurementGuideView data={measurementGuide} onlySize={selectedSize || undefined} ink={ink} subtle={subtle} edge={edge} brand={brand} />
               : <p style={{ color: subtle, lineHeight: 1.7, fontSize: 13 }}>Choose an available seller-listed size. Measurements may vary by brand; contact the seller for exact measurements.</p>}
-            {sizeOptions.length > 0 && <div style={{ fontSize: 13, fontWeight: 700, color: ink, marginTop: 22 }}>Choose your size</div>}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12 }}>{sizeOptions.length > 0 ? sizeOptions.map(size => <button key={size} onClick={() => { handleSizeSelect(size); setEditorialSizeGuideOpen(false); }} style={{ minWidth: 55, minHeight: 50, background: selectedSize.toLowerCase() === size.toLowerCase() ? brand : "transparent", color: selectedSize.toLowerCase() === size.toLowerCase() ? "#fff" : ink, border: `1px solid ${edge}`, borderRadius: 8 }}>{size}</button>) : (!measurementGuide && <span style={{ color: subtle }}>This product has no size options.</span>)}</div>
+            {measurementGuide && <button onClick={() => setEditorialSizeGuideOpen(false)} style={{ width: "100%", minHeight: 50, marginTop: 20, border: 0, borderRadius: 10, background: brand, color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>Done</button>}
+            {!measurementGuide && <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 25 }}>{sizeOptions.length > 0 ? sizeOptions.map(size => <button key={size} onClick={() => { handleSizeSelect(size); setEditorialSizeGuideOpen(false); }} style={{ minWidth: 55, minHeight: 50, background: selectedSize.toLowerCase() === size.toLowerCase() ? brand : "transparent", color: selectedSize.toLowerCase() === size.toLowerCase() ? "#fff" : ink, border: `1px solid ${edge}`, borderRadius: 8 }}>{size}</button>) : <span style={{ color: subtle }}>This product has no size options.</span>}</div>}
           </section>
         </div>}
       </div>

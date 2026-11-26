@@ -31,6 +31,7 @@ import {
   SHOE_SIZE_TABLE,
   measurementPicture,
   suggestMeasureMode,
+  suggestSizePresets,
   toLegacySizeGuide,
   type MeasurementGuideData,
   type MeasurementGuideId,
@@ -47,8 +48,6 @@ interface Props {
 interface ColourEntry { id: string; name: string; images: string[] }
 
 const DELIVERY_OPTIONS = ["Same day", "Next day", "1-2 days", "2-3 days", "3-5 business days", "5-7 business days", "1-2 weeks"];
-const CLOTHING_SIZES = ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "Free size"];
-const SHOE_SIZES = ["36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46"];
 const SWATCHES: Record<string, string> = {
   black: "#121212", white: "#f8f8f6", red: "#c62828", blue: "#1e56c4", navy: "#1f2f5c", green: "#2e7d32",
   yellow: "#f2c200", orange: "#ef6c00", pink: "#ec5f95", purple: "#7b3fa0", brown: "#7a4e33", beige: "#d8c3a5",
@@ -79,17 +78,32 @@ async function sendJson<T>(method: string, url: string, body?: unknown): Promise
   return parsed as T;
 }
 
-async function uploadImage(file: File): Promise<string> {
+type UploadedPhoto = { url: string; width?: number | null; height?: number | null };
+
+async function uploadImage(file: File): Promise<UploadedPhoto> {
   for (const [endpoint, withCreds] of [["/api/upload/image", true], ["/api/upload/public", false]] as const) {
     try {
       const fd = new FormData();
       fd.append("file", file);
       const res = await fetch(endpoint, { method: "POST", body: fd, credentials: withCreds ? "include" : "omit" });
       const json = await res.json().catch(() => null);
-      if (res.ok && json?.url) return String(json.url);
+      if (res.ok && json?.url) return { url: String(json.url), width: json.width ?? null, height: json.height ?? null };
     } catch { /* try next */ }
   }
   throw new Error("Photo upload failed. Check your connection and try again.");
+}
+
+/** Background removed, product on pure white. Falls back to the original photo. */
+async function makeStudioPhoto(photo: UploadedPhoto): Promise<{ url: string; studio: boolean }> {
+  try {
+    const res = await fetch("/api/upload/studio-photo", {
+      method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(photo),
+    });
+    const json = await res.json().catch(() => null);
+    if (res.ok && json?.url) return { url: String(json.url), studio: !!json.studio };
+  } catch { /* keep original */ }
+  return { url: photo.url, studio: false };
 }
 
 /* ── Small building blocks (Tailwind tokens so light/dark both work) ───── */
@@ -211,6 +225,7 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
   const [singlePhotos, setSinglePhotos] = useState<string[]>([]);
   const [singleQty, setSingleQty] = useState("1");
   const [uploadingFor, setUploadingFor] = useState<string | null>(null);
+  const [studioPhotos, setStudioPhotos] = useState(true);
   // Step 3
   const [guideOverride, setGuideOverride] = useState<MeasurementGuideId | null>(null);
   const [unit, setUnit] = useState<"cm" | "in">("cm");
@@ -221,6 +236,9 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
   const [shoeChart, setShoeChart] = useState<Record<string, { uk?: string; us?: string; footLength?: string; footWidth?: string }>>({});
   const [shoeFit, setShoeFit] = useState<"small" | "true" | "large">("true");
   const [error, setError] = useState<string | null>(null);
+  const [requestOpen, setRequestOpen] = useState(false);
+  const [requestName, setRequestName] = useState("");
+  const [requestState, setRequestState] = useState<{ busy: boolean; message: string | null }>({ busy: false, message: null });
 
   // Reset everything when the flow is opened fresh.
   useEffect(() => {
@@ -231,6 +249,7 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
     setStock({}); setSinglePhotos([]); setSingleQty("1");
     setGuideOverride(null); setUnit("cm"); setActiveSize(""); setMeasures({}); setWithBody(false); setBodyMeasures({});
     setShoeChart({}); setShoeFit("true");
+    setRequestOpen(false); setRequestName(""); setRequestState({ busy: false, message: null });
   }, [open, isBeauty]);
 
   // Lock page scroll behind the full-screen flow.
@@ -257,11 +276,16 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
   const oneSizeGuide = !!guide?.oneSize;
   const bodyGuideId: BodyGuideId = /^(men|boys)$/i.test(String(specific.genderTarget || "")) ? "body-men" : "body-women";
 
-  // Step 1 shows the store type's product details, except beauty facts (step 3).
-  const step1Fields = isBeauty ? [] : productFields;
+  // Step 1 shows the store type's product details that fit THIS item: "Fit"
+  // only for garments (not shoes, bags, hijabs or jewellery). Beauty facts are
+  // asked in step 3 instead.
+  const isGarment = measureMode.mode === "garment" && !MEASUREMENT_GUIDES[guideOverride || measureMode.guide].kind;
+  const step1Fields: DynamicField[] = isBeauty ? [] : productFields
+    .filter((f) => f.name !== "fitType" || isGarment || !categoryId)
+    .map((f) => (f.name === "fitType" ? { ...f, required: isGarment } : f));
   const step3BeautyFields = isBeauty ? productFields : [];
 
-  const sizePresets = isShoes ? SHOE_SIZES : isBeauty ? [] : CLOTHING_SIZES;
+  const sizePresets = isBeauty ? [] : suggestSizePresets({ categorySlug: category?.slug, categoryName: category?.name, guide: guideId });
   const effectiveSizes = hasOptions ? sizes : [];
   const sizeLabels = effectiveSizes.length > 0 ? effectiveSizes : ["One size"];
   const measureSizes = oneSizeGuide ? ["One size"] : sizeLabels;
@@ -292,13 +316,39 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
     setColours((p) => [...p, { id: uid(), name: v, images: [] }]);
     setNewColour("");
   };
+  const requestCategory = async () => {
+    const nameToRequest = requestName.trim();
+    if (nameToRequest.length < 2) { setRequestState({ busy: false, message: "Type the category name first." }); return; }
+    setRequestState({ busy: true, message: null });
+    try {
+      const res = await sendJson<any>("POST", "/api/seller/categories/request", { name: nameToRequest });
+      setRequestState({
+        busy: false,
+        message: res?.isActive
+          ? `“${res.name}” already exists. Pick it from the list above.`
+          : `Requested “${nameToRequest}”. You'll be notified when an admin approves it; until then, pick the closest category.`,
+      });
+      setRequestName("");
+      queryClient.invalidateQueries({ queryKey: ["/api/categories", "active"] });
+    } catch (e: any) {
+      setRequestState({ busy: false, message: e?.message || "Couldn't send the request. Try again." });
+    }
+  };
   const removeColour = (id: string) => setColours((p) => p.filter((c) => c.id !== id));
   const handlePhotos = async (files: FileList | null, target: string) => {
     if (!files || files.length === 0) return;
     setUploadingFor(target);
     try {
-      const urls: string[] = [];
-      for (const file of Array.from(files).slice(0, 8)) urls.push(await uploadImage(file));
+      const uploaded: UploadedPhoto[] = [];
+      for (const file of Array.from(files).slice(0, 8)) uploaded.push(await uploadImage(file));
+      let urls = uploaded.map((u) => u.url);
+      if (studioPhotos) {
+        const results = await Promise.all(uploaded.map(makeStudioPhoto));
+        urls = results.map((r) => r.url);
+        if (results.some((r) => !r.studio)) {
+          toast({ title: "Some photos kept as they are", description: "The white background couldn't be made for every photo. You can still use them." });
+        }
+      }
       if (target === "__single") setSinglePhotos((p) => [...p, ...urls].slice(0, 8));
       else setColours((p) => p.map((c) => (c.id === target ? { ...c, images: [...c.images, ...urls].slice(0, 8) } : c)));
     } catch (e: any) {
@@ -362,7 +412,7 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
       } else if (guide) {
         for (const sz of measureSizes) {
           const row = measures[sz] || {};
-          const gap = guide.fields.find((f) => !String(row[f.key] || "").trim());
+          const gap = guide.fields.find((f) => !f.optional && !String(row[f.key] || "").trim());
           if (gap) return `Add “${gap.label}” for ${sz === "One size" ? "this item" : `size ${sz}`}.`;
         }
       }
@@ -396,7 +446,9 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
           } : {}),
         };
       }
-      const storeSpecific = buildStoreTypeProductDefaults(storeType, specific);
+      // Drop "Fit" if the seller picked it before switching to a non-garment category.
+      const { fitType: _fit, ...nonGarmentSpecific } = specific;
+      const storeSpecific = buildStoreTypeProductDefaults(storeType, isGarment ? specific : nonGarmentSpecific);
       const productData: any = {
         name: name.trim(),
         description: description.trim(),
@@ -490,6 +542,22 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
                 <option value="">Choose a category</option>
                 {categories.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+              {!requestOpen ? (
+                <button type="button" onClick={() => setRequestOpen(true)} className="self-start py-1 text-[13px] font-semibold text-primary">
+                  Can't find your category? Request one
+                </button>
+              ) : (
+                <div className="mt-1 flex flex-col gap-2 rounded-xl border border-dashed border-border p-3">
+                  <label htmlFor="wiz-req" className="text-xs text-muted-foreground">New category name. An admin reviews it before anyone can use it.</label>
+                  <div className="flex gap-2">
+                    <input id="wiz-req" value={requestName} onChange={(e) => setRequestName(e.target.value)} placeholder="e.g. Bridal shoes" className={`${inputCls} h-11`} />
+                    <button type="button" onClick={() => void requestCategory()} disabled={requestState.busy} className="h-11 shrink-0 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground disabled:opacity-60">
+                      {requestState.busy ? "Sending…" : "Request"}
+                    </button>
+                  </div>
+                  {requestState.message && <p role="status" className="text-xs leading-snug text-foreground">{requestState.message}</p>}
+                </div>
+              )}
             </Field>
             <Field label="Description *" htmlFor="wiz-desc">
               <textarea id="wiz-desc" rows={3} value={description} onChange={(e) => setDescription(e.target.value)}
@@ -545,6 +613,13 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
                   </div>
                 </div>
 
+                <div className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-bold">Studio photos</div>
+                    <p className="text-xs leading-snug text-muted-foreground">Removes the background and puts your product on clean white, like the photos on KiyuMart.</p>
+                  </div>
+                  <Toggle on={studioPhotos} onChange={setStudioPhotos} label="Studio photos" />
+                </div>
                 <div className="flex flex-col gap-2">
                   <div className="text-[13px] font-bold">{isBeauty ? "Shades & photos" : "Colours & photos"}</div>
                   <div className="flex flex-col rounded-xl border border-border">
@@ -619,6 +694,13 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
               </>
             ) : (
               <>
+                <div className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-bold">Studio photos</div>
+                    <p className="text-xs leading-snug text-muted-foreground">Removes the background and puts your product on clean white, like the photos on KiyuMart.</p>
+                  </div>
+                  <Toggle on={studioPhotos} onChange={setStudioPhotos} label="Studio photos" />
+                </div>
                 <div className="flex flex-col gap-2">
                   <div className="text-[13px] font-bold">Photos (at least 3)</div>
                   <div className="flex flex-wrap gap-2">
@@ -760,7 +842,7 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
                       {guide.fields.map((f, i) => (
                         <div key={f.key} className="flex min-w-0 flex-col gap-1">
                           <label htmlFor={`m-${f.key}`} className="flex items-center gap-1.5 text-xs font-semibold">
-                            <span className="grid h-[18px] w-[18px] place-items-center rounded-full bg-foreground text-[10px] text-background">{i + 1}</span>{f.label}
+                            <span className="grid h-[18px] w-[18px] place-items-center rounded-full bg-foreground text-[10px] text-background">{i + 1}</span>{f.label}{f.optional ? <span className="font-normal text-muted-foreground"> (optional)</span> : null}
                           </label>
                           <div className="flex h-12 items-center rounded-xl border border-border bg-background px-3 focus-within:border-primary">
                             <input id={`m-${f.key}`} inputMode="decimal" value={measures[currentMeasureSize]?.[f.key] || ""}

@@ -13,11 +13,12 @@
 
 export type MeasurementGuideId =
   | "dress-short" | "abaya" | "top-short" | "top-long" | "shirt-long" | "jacket"
-  | "kaftan" | "trousers" | "shorts" | "skirt" | "hijab" | "shoes" | "bag";
+  | "kaftan" | "trousers" | "shorts" | "skirt" | "hijab" | "shoes" | "bag"
+  | "jumpsuit" | "bra" | "swimsuit" | "baby";
 
 export type BodyGuideId = "body-women" | "body-men";
 
-export interface MeasurementField { key: string; label: string; hint?: string }
+export interface MeasurementField { key: string; label: string; hint?: string; optional?: boolean }
 
 export interface MeasurementGuideDef {
   id: MeasurementGuideId;
@@ -112,14 +113,33 @@ export const MEASUREMENT_GUIDES: Record<MeasurementGuideId, MeasurementGuideDef>
   shoes: {
     id: "shoes", label: "Shoes", kind: "shoes",
     howTo: ["1: stand on paper, mark the heel and the longest toe, measure between.", "2: the widest part of the foot. Optional."],
-    fields: [{ key: "footLength", label: "Foot length" }, { key: "footWidth", label: "Foot width" }],
+    fields: [{ key: "footLength", label: "Foot length" }, { key: "footWidth", label: "Foot width", optional: true }],
   },
   bag: {
     id: "bag", label: "Bag", howTo: ["Measure the bag empty, standing up.", "Strap drop: top of the handle to the top of the bag."], oneSize: true, kind: "item",
     fields: [
       { key: "width", label: "Width" }, { key: "height", label: "Height" },
-      { key: "depth", label: "Depth" }, { key: "strapDrop", label: "Strap drop" },
+      { key: "depth", label: "Depth" }, { key: "strapDrop", label: "Strap drop", optional: true },
     ],
+  },
+  jumpsuit: {
+    id: "jumpsuit", label: "Jumpsuit / playsuit", howTo: [FLAT, DOUBLE, "Length: top of the shoulder to the hem."],
+    fields: [
+      { key: "bust", label: "Bust" }, { key: "waist", label: "Waist" }, { key: "hips", label: "Hips" },
+      { key: "inseam", label: "Inside leg" }, { key: "length", label: "Length" },
+    ],
+  },
+  bra: {
+    id: "bra", label: "Lingerie / underwear", howTo: ["Underbust: around the band, under the cups.", "Bust: around the fullest part of the cups.", "Hips: around the widest part of the briefs."],
+    fields: [{ key: "underbust", label: "Underbust (band)" }, { key: "bust", label: "Bust" }, { key: "hips", label: "Hips", optional: true }],
+  },
+  swimsuit: {
+    id: "swimsuit", label: "Swimwear", howTo: [FLAT, DOUBLE, "Length: top of the strap to the bottom edge."],
+    fields: [{ key: "bust", label: "Bust" }, { key: "waist", label: "Waist" }, { key: "hips", label: "Hips" }, { key: "length", label: "Length" }],
+  },
+  baby: {
+    id: "baby", label: "Baby clothing", howTo: [FLAT, "Chest: armpit to armpit, then double it.", "Length: top of the shoulder to the bottom."],
+    fields: [{ key: "bust", label: "Chest" }, { key: "length", label: "Length" }],
   },
 };
 
@@ -135,7 +155,7 @@ export const BODY_GUIDES: Record<BodyGuideId, { id: BodyGuideId; label: string; 
 /** Guides a seller can switch between in step 3, in a sensible order. */
 export const GARMENT_GUIDE_CHOICES: MeasurementGuideId[] = [
   "dress-short", "abaya", "top-short", "top-long", "shirt-long", "jacket", "kaftan",
-  "trousers", "shorts", "skirt", "hijab", "shoes", "bag",
+  "trousers", "shorts", "skirt", "jumpsuit", "bra", "swimsuit", "baby", "hijab", "shoes", "bag",
 ];
 
 export const measurementPicture = (id: MeasurementGuideId | BodyGuideId) => `/measure/${id}.svg`;
@@ -161,18 +181,25 @@ export function suggestMeasureMode(input: {
   const men = /^(men|boys)$/i.test(String(input.genderTarget || ""));
   const has = (...words: string[]) => words.some((w) => text.includes(w));
 
-  if (has("foot", "shoe", "sandal", "sneaker", "slipper", "heel")) return { mode: "garment", guide: "shoes" };
+  if (has("foot", "shoe", "sandal", "sneaker", "slipper", "heel", "boot")) return { mode: "garment", guide: "shoes" };
   if (has("bag", "handbag", "purse", "backpack")) return { mode: "garment", guide: "bag" };
   if (has("hijab", "scarf", "scarves", "shawl", "veil")) return { mode: "garment", guide: "hijab" };
-  if (has("jewel", "watch", "belt", "cap", "hat", "headwear", "fabric", "tailoring", "accessor", "sunglass")) return { mode: "none" };
-  if (has("trouser", "pant", "jean")) return { mode: "garment", guide: "trousers" };
+  if (has("lingerie", "bra", "underwear")) return { mode: "garment", guide: men ? "shorts" : "bra" };
+  if (has("jewel", "watch", "belt", "cap", "hat", "headwear", "fabric", "tailoring", "accessor", "sunglass", "eyewear", "wallet", "tie", "cufflink", "sock")) return { mode: "none" };
+  if (has("baby", "infant", "newborn")) return { mode: "garment", guide: "baby" };
+  if (has("swim", "beach")) return { mode: "garment", guide: men ? "shorts" : "swimsuit" };
+  if (has("jumpsuit", "playsuit", "overall")) return { mode: "garment", guide: "jumpsuit" };
+  if (has("hoodie", "sweat", "knit", "cardigan")) return { mode: "garment", guide: "top-long" };
+  if (has("uniform", "workwear")) return { mode: "garment", guide: men ? "shirt-long" : "top-short" };
+  if (has("african", "kente", "ankara", "batik")) return { mode: "garment", guide: men ? "kaftan" : "dress-short" };
+  if (has("trouser", "pant", "jean", "denim")) return { mode: "garment", guide: "trousers" };
   if (has("skirt")) return { mode: "garment", guide: "skirt" };
   if (has("short")) return { mode: "garment", guide: "shorts" };
   if (has("bottom")) return { mode: "garment", guide: "trousers" };
   if (has("jacket", "coat", "suit", "blazer")) return { mode: "garment", guide: "jacket" };
   if (has("kaftan", "jalabiya", "smock", "traditional", "agbada")) return { mode: "garment", guide: men ? "kaftan" : "abaya" };
   if (has("abaya")) return { mode: "garment", guide: "abaya" };
-  if (has("dress")) return { mode: "garment", guide: "dress-short" };
+  if (has("dress", "maternity")) return { mode: "garment", guide: "dress-short" };
   if (has("evening", "occasion", "wedding", "gown", "modest")) return { mode: "garment", guide: men ? "kaftan" : "abaya" };
   if (has("sleep", "lounge")) return { mode: "garment", guide: "top-long" };
   if (has("top", "shirt", "blouse", "tee", "sport", "active")) return { mode: "garment", guide: men ? "shirt-long" : "top-short" };
@@ -222,3 +249,20 @@ export const SHOE_SIZE_TABLE: Record<string, { uk: string; cm: string }> = {
   "44": { uk: "9.5", cm: "28" }, "45": { uk: "10.5", cm: "28.6" }, "46": { uk: "11", cm: "29.3" },
   "47": { uk: "12", cm: "30" },
 };
+
+/** Size buttons offered in step 2 for this category (seller can add others). */
+export function suggestSizePresets(input: { categorySlug?: string | null; categoryName?: string | null; guide?: MeasurementGuideId | null }): string[] {
+  const text = `${input.categorySlug || ""} ${input.categoryName || ""}`.toLowerCase();
+  const kids = /kid|child|girl|boy|school/.test(text);
+  const baby = /baby|infant|newborn/.test(text);
+  if (input.guide === "shoes") {
+    if (baby) return ["16", "17", "18", "19", "20", "21", "22"];
+    if (kids) return ["23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35"];
+    return ["36", "37", "38", "39", "40", "41", "42", "43", "44", "45", "46"];
+  }
+  if (baby || input.guide === "baby") return ["0-3 m", "3-6 m", "6-12 m", "12-18 m", "18-24 m"];
+  if (kids) return ["2-3 y", "4-5 y", "6-7 y", "8-9 y", "10-11 y", "12-13 y"];
+  if (input.guide === "bra") return ["32A", "32B", "34A", "34B", "34C", "36B", "36C", "36D", "38C", "38D"];
+  if (input.guide === "hijab" || input.guide === "bag") return ["One size"];
+  return ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "Free size"];
+}
