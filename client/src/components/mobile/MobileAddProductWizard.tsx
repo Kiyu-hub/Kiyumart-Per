@@ -78,17 +78,32 @@ async function sendJson<T>(method: string, url: string, body?: unknown): Promise
   return parsed as T;
 }
 
-async function uploadImage(file: File): Promise<string> {
+type UploadedPhoto = { url: string; width?: number | null; height?: number | null };
+
+async function uploadImage(file: File): Promise<UploadedPhoto> {
   for (const [endpoint, withCreds] of [["/api/upload/image", true], ["/api/upload/public", false]] as const) {
     try {
       const fd = new FormData();
       fd.append("file", file);
       const res = await fetch(endpoint, { method: "POST", body: fd, credentials: withCreds ? "include" : "omit" });
       const json = await res.json().catch(() => null);
-      if (res.ok && json?.url) return String(json.url);
+      if (res.ok && json?.url) return { url: String(json.url), width: json.width ?? null, height: json.height ?? null };
     } catch { /* try next */ }
   }
   throw new Error("Photo upload failed. Check your connection and try again.");
+}
+
+/** Background removed, product on pure white. Falls back to the original photo. */
+async function makeStudioPhoto(photo: UploadedPhoto): Promise<{ url: string; studio: boolean }> {
+  try {
+    const res = await fetch("/api/upload/studio-photo", {
+      method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(photo),
+    });
+    const json = await res.json().catch(() => null);
+    if (res.ok && json?.url) return { url: String(json.url), studio: !!json.studio };
+  } catch { /* keep original */ }
+  return { url: photo.url, studio: false };
 }
 
 /* ── Small building blocks (Tailwind tokens so light/dark both work) ───── */
@@ -210,6 +225,7 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
   const [singlePhotos, setSinglePhotos] = useState<string[]>([]);
   const [singleQty, setSingleQty] = useState("1");
   const [uploadingFor, setUploadingFor] = useState<string | null>(null);
+  const [studioPhotos, setStudioPhotos] = useState(true);
   // Step 3
   const [guideOverride, setGuideOverride] = useState<MeasurementGuideId | null>(null);
   const [unit, setUnit] = useState<"cm" | "in">("cm");
@@ -323,8 +339,16 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
     if (!files || files.length === 0) return;
     setUploadingFor(target);
     try {
-      const urls: string[] = [];
-      for (const file of Array.from(files).slice(0, 8)) urls.push(await uploadImage(file));
+      const uploaded: UploadedPhoto[] = [];
+      for (const file of Array.from(files).slice(0, 8)) uploaded.push(await uploadImage(file));
+      let urls = uploaded.map((u) => u.url);
+      if (studioPhotos) {
+        const results = await Promise.all(uploaded.map(makeStudioPhoto));
+        urls = results.map((r) => r.url);
+        if (results.some((r) => !r.studio)) {
+          toast({ title: "Some photos kept as they are", description: "The white background couldn't be made for every photo. You can still use them." });
+        }
+      }
       if (target === "__single") setSinglePhotos((p) => [...p, ...urls].slice(0, 8));
       else setColours((p) => p.map((c) => (c.id === target ? { ...c, images: [...c.images, ...urls].slice(0, 8) } : c)));
     } catch (e: any) {
@@ -589,6 +613,13 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
                   </div>
                 </div>
 
+                <div className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-bold">Studio photos</div>
+                    <p className="text-xs leading-snug text-muted-foreground">Removes the background and puts your product on clean white, like the photos on KiyuMart.</p>
+                  </div>
+                  <Toggle on={studioPhotos} onChange={setStudioPhotos} label="Studio photos" />
+                </div>
                 <div className="flex flex-col gap-2">
                   <div className="text-[13px] font-bold">{isBeauty ? "Shades & photos" : "Colours & photos"}</div>
                   <div className="flex flex-col rounded-xl border border-border">
@@ -663,6 +694,13 @@ export default function MobileAddProductWizard({ open, onClose, store, userId }:
               </>
             ) : (
               <>
+                <div className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-bold">Studio photos</div>
+                    <p className="text-xs leading-snug text-muted-foreground">Removes the background and puts your product on clean white, like the photos on KiyuMart.</p>
+                  </div>
+                  <Toggle on={studioPhotos} onChange={setStudioPhotos} label="Studio photos" />
+                </div>
                 <div className="flex flex-col gap-2">
                   <div className="text-[13px] font-bold">Photos (at least 3)</div>
                   <div className="flex flex-wrap gap-2">
