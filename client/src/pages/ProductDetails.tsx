@@ -28,6 +28,10 @@ import ProductPageAd from "@/pages/ProductPageAd";
 import CleanVideoPlayer from "@/components/CleanVideoPlayer";
 import { getProductCategoryLabel, normalizeCategoryKey } from "@/lib/categoryUtils";
 import { isDirectVideoUrl } from "@/lib/videoPlayback";
+import { sortSizes } from "@/lib/listing";
+import { getCurrentSellingPrice, getOriginalDisplayPrice } from "@/lib/pricing";
+import MeasurementGuideView, { isMeasurementGuide } from "@/components/MeasurementGuideView";
+import { resolveWearerGender } from "@/lib/measurementGuides";
 import type { PlatformSettings } from "@shared/schema";
 import { getStoreTypeVariantConfig, type StoreType } from "@shared/storeTypes";
 
@@ -910,7 +914,8 @@ export default function ProductDetails() {
 
   const colorOptions = colorVariantGroups;
   const selectedColor = String(selectedColorGroup?.color || selectedVariantBase?.color || "").trim();
-  const sizeOptions = Array.from(
+  // Sizes always run smallest → largest (same ordering as the phone product page).
+  const sizeOptions = sortSizes(Array.from(
     new Set(
       (selectedColorGroup?.sizes?.length
         ? selectedColorGroup.sizes
@@ -923,8 +928,18 @@ export default function ProductDetails() {
             .flatMap((variant) => splitVariantSizes(variant.size)))
       .filter(Boolean),
     ),
-  );
-  const selectedSize = selectedSizeOption || sizeOptions[0] || splitVariantSizes(selectedVariantBase?.size)[0] || "";
+  ));
+  // Deliberate size choice (same rule as the phone product page): with more
+  // than one size nothing is preselected; a single size is chosen automatically.
+  const sizeChoiceValid = !!selectedSizeOption && sizeOptions.some((size) => size.toLowerCase() === selectedSizeOption.toLowerCase());
+  const needsSizeChoice = sizeOptions.length > 1 && !sizeChoiceValid;
+  const selectedSize = sizeChoiceValid
+    ? selectedSizeOption
+    : sizeOptions.length === 1
+      ? sizeOptions[0]
+      : sizeOptions.length === 0
+        ? (splitVariantSizes(selectedVariantBase?.size)[0] || "")
+        : "";
   const selectedVariant =
     (selectedColorGroup?.variants.find((variant) =>
       splitVariantSizes(variant.size).some((size) => size.toLowerCase() === selectedSize.toLowerCase()),
@@ -934,7 +949,9 @@ export default function ProductDetails() {
     availableVariants[0] ??
     null;
 
-  const availableStock = product ? (selectedVariant
+  const availableStock = product ? (needsSizeChoice
+    ? (selectedColorGroup?.stock ?? availableVariants.reduce((sum, variant) => sum + Number(variant.stock || 0), 0))
+    : selectedVariant
     ? selectedVariant.stock
     : selectedColorGroup
       ? selectedColorGroup.stock
@@ -1000,7 +1017,8 @@ export default function ProductDetails() {
     }
 
     if (!selectedSizeOption || !sizeOptions.some((size) => size.toLowerCase() === selectedSizeOption.toLowerCase())) {
-      setSelectedSizeOption(sizeOptions[0]);
+      const next = sizeOptions.length === 1 ? sizeOptions[0] : "";
+      if (next !== selectedSizeOption) setSelectedSizeOption(next);
     }
   }, [sizeOptions, selectedSizeOption]);
 
@@ -1043,7 +1061,7 @@ export default function ProductDetails() {
       const nextSizes = selectedGroup?.sizes || splitVariantSizes(matchingVariant.size);
       if (nextSizes.length > 0) {
         const preservedSize = nextSizes.find((size) => size.toLowerCase() === selectedSize.toLowerCase());
-        setSelectedSizeOption(preservedSize || nextSizes[0]);
+        setSelectedSizeOption(preservedSize || (nextSizes.length === 1 ? nextSizes[0] : ""));
       } else {
         setSelectedSizeOption("");
       }
@@ -1278,6 +1296,11 @@ export default function ProductDetails() {
   };
 
   const handleAddToCart = async () => {
+    if (needsSizeChoice) {
+      toast({ title: "Choose a size", description: "Please select your size before continuing." });
+      document.querySelector('[data-size-picker]')?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     const activeUser = await ensureAuthenticated();
     if (!activeUser) {
       toast({
@@ -1399,6 +1422,11 @@ export default function ProductDetails() {
   };
 
   const handleBuyNow = async () => {
+    if (needsSizeChoice) {
+      toast({ title: "Choose a size", description: "Please select your size before continuing." });
+      document.querySelector('[data-size-picker]')?.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
     const activeUser = await ensureAuthenticated();
     if (!activeUser) {
       toast({
@@ -1513,13 +1541,11 @@ export default function ProductDetails() {
     );
   }
 
-  const sellingPrice = parseFloat(product.price);
-  const originalPrice = product.costPrice ? parseFloat(product.costPrice) : null;
-  const calculatedDiscount = originalPrice && originalPrice > sellingPrice
-    ? Math.round(((originalPrice - sellingPrice) / originalPrice) * 100)
-    : 0;
-  const rawDiscount = Number(product.discount) || 0;
-  const discount = Math.max(0, calculatedDiscount > 0 ? calculatedDiscount : rawDiscount > 0 ? rawDiscount : 0);
+  // Same price rule as the phone product page and checkout (lib/pricing).
+  const sellingPrice = getCurrentSellingPrice({ price: product.price, costPrice: product.costPrice ?? null, discount: product.discount ?? null });
+  const originalDisplay = getOriginalDisplayPrice({ price: product.price, costPrice: product.costPrice ?? null, discount: product.discount ?? null });
+  const originalPrice = originalDisplay > sellingPrice ? originalDisplay : null;
+  const discount = originalPrice ? Math.max(0, Math.round(((originalPrice - sellingPrice) / originalPrice) * 100)) : 0;
   const rating = parseFloat(product.ratings) || 0;
   const deliveryDurationLabel = resolveDeliveryDurationLabel(product.deliveryDuration);
   const expectedDeliveryText = resolveExpectedDeliveryText(product.deliveryDuration);
@@ -1536,7 +1562,12 @@ export default function ProductDetails() {
       : 0;
   const storeSpecificDetails = resolveStoreSpecificDetails(product);
   const variantConfig = getStoreTypeVariantConfig(storeSpecificDetails.storeType);
-  const showSizeGuide = variantConfig.supportsSizeGuide && hasSizeGuide;
+  // Measurement guide saved by the add-product flow (with the measuring picture).
+  // Desktop shows it inside its existing Size Guide dialog — same data as phones.
+  const measurementGuide = isMeasurementGuide(product?.dynamicFields?.measurementGuide)
+    ? (product!.dynamicFields!.measurementGuide as any)
+    : null;
+  const showSizeGuide = variantConfig.supportsSizeGuide && (hasSizeGuide || !!measurementGuide);
   const showClothingFitGuideFallback = reviewCount === 0 && !!sizeGuideAudience && hasSizeGuide;
   const reviewBuckets = [5, 4, 3, 2, 1].map((star) => {
     const count = reviews.filter((review) => Math.round(review.rating) === star).length;
@@ -2182,7 +2213,7 @@ export default function ProductDetails() {
                   )}
 
                   {sizeOptions.length > 0 && (
-                    <div className="space-y-3">
+                    <div className="space-y-3" data-size-picker="">
                       <div className="flex items-center justify-between gap-3">
                         <p className="text-sm font-semibold text-foreground">
                           {variantConfig.secondaryLabel}
@@ -2237,7 +2268,7 @@ export default function ProductDetails() {
                             </span>
                           )
                           : <span className="text-base font-semibold text-green-600 dark:text-green-400">{availableStock} in stock</span>
-                        : <span className="text-base font-semibold text-destructive">Out of stock</span>
+                        : <span className="text-base font-semibold text-destructive">Sold out</span>
                       }
                     </p>
 
@@ -2300,7 +2331,7 @@ export default function ProductDetails() {
                       <span className="text-base text-muted-foreground font-semibold">{remainingToAdd} available</span>
                     )
                   ) : (
-                    <span className="text-base text-destructive font-semibold">Out of stock</span>
+                    <span className="text-base text-destructive font-semibold">Sold out</span>
                   )}
                   {isOwnSellerProduct ? (
                     <span className="text-sm font-semibold text-amber-600 dark:text-amber-400">
@@ -2355,9 +2386,11 @@ export default function ProductDetails() {
                         Adding...
                       </>
                     ) : availableStock === 0 ? (
-                      "Out of Stock"
+                      "Sold out"
                     ) : isOwnSellerProduct ? (
                       "Your Product"
+                    ) : needsSizeChoice ? (
+                      "Select a size"
                     ) : allAvailableItemsAlreadyInCart ? (
                       "Already in Cart"
                     ) : (
@@ -2735,7 +2768,9 @@ export default function ProductDetails() {
             {addedToCart ? (
               <><Check className="h-5 w-5 mr-1" /> Added</>
             ) : availableStock === 0 ? (
-              "Sold Out"
+              "Sold out"
+            ) : needsSizeChoice ? (
+              "Select a size"
             ) : allAvailableItemsAlreadyInCart ? (
               "Already in Cart"
             ) : (
@@ -2803,6 +2838,21 @@ export default function ProductDetails() {
               </DialogHeader>
 
               <div className="px-6 py-6 sm:px-8">
+                {measurementGuide ? (
+                  <div className="mx-auto max-w-xl" data-testid="desktop-measurement-guide">
+                    <MeasurementGuideView
+                      data={measurementGuide}
+                      sizes={sizeOptions}
+                      selectedSize={selectedSize}
+                      onSelectSize={handleSizeSelect}
+                      gender={resolveWearerGender(product)}
+                      ink="hsl(var(--foreground))"
+                      subtle="hsl(var(--muted-foreground))"
+                      edge="hsl(var(--border))"
+                      brand="hsl(var(--primary))"
+                    />
+                  </div>
+                ) : (
                 <Tabs defaultValue={hasBodyGuide ? "body" : "product"} className="space-y-6">
                   <TabsList className="h-auto rounded-full bg-slate-100 p-1 dark:bg-slate-900/80">
                     {hasBodyGuide && (
@@ -2959,6 +3009,7 @@ export default function ProductDetails() {
                     </TabsContent>
                   )}
                 </Tabs>
+                )}
               </div>
             </div>
           </DialogContent>

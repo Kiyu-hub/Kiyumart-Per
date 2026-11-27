@@ -13,19 +13,14 @@ function toNumber(value: string | number | null | undefined) {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
+// Must match what checkout charges (server/routes.ts: price × (1 − discount%)).
+// `costPrice` above `price` is only the "was" price shown crossed out.
 export function getCurrentSellingPrice(product: PriceableProductLike) {
   const sellingPrice = Math.max(0, toNumber(product.price));
-  const originalPrice = toNumber(product.costPrice);
-
-  if (originalPrice > sellingPrice && sellingPrice > 0) {
-    return sellingPrice;
-  }
-
   const productDiscount = Number(product.discount ?? 0);
-  if (productDiscount > 0) {
+  if (productDiscount > 0 && productDiscount < 100) {
     return Math.max(0, sellingPrice * (1 - productDiscount / 100));
   }
-
   return sellingPrice;
 }
 

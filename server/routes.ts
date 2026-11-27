@@ -114,6 +114,7 @@ import { hasSupportFirstResponse, isSupportStaffRole, resolveSupportDisplayName,
 import { canonicalizeOrderStatus } from "./services/orderStateMachine";
 import { getRiderRiskScore, listRiderRiskScores, recordRiderRiskSignal } from "./services/riderRiskEngine";
 import { logSystemActivity } from "./observability";
+import { toPublicStore, toPublicStores } from "./publicStore";
 import { encryptField, decryptField, isEncrypted } from "./utils/sensitiveEncrypt";
 import {
   recordReferralSignup,
@@ -24005,7 +24006,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isActive: isActive === "true" ? true : isActive === "false" ? false : undefined,
         isApproved: isApproved === "true" ? true : isApproved === "false" ? false : undefined,
       });
-      res.json(stores);
+      // KM-006: public endpoint — allowlisted fields only.
+      res.json(toPublicStores(stores));
     } catch (error: any) {
       sendApiError(res, error);
     }
@@ -24171,10 +24173,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Store not found" });
       }
       const seller = store.primarySellerId ? await storage.getUser(store.primarySellerId) : null;
-      res.json({
+      // KM-006: public endpoint — allowlisted fields only.
+      res.json(toPublicStore({
         ...store,
         sellerProfileImage: seller?.profileImage || null,
-      });
+      }));
     } catch (error: any) {
       sendApiError(res, error);
     }
@@ -24196,10 +24199,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Store not found" });
       }
       const seller = await storage.getUser(req.params.sellerId);
-      res.json({
+      // KM-006: public endpoint — allowlisted fields only.
+      res.json(toPublicStore({
         ...store,
         sellerProfileImage: seller?.profileImage || null,
-      });
+      }));
     } catch (error: any) {
       sendApiError(res, error);
     }

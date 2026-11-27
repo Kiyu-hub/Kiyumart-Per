@@ -66,20 +66,19 @@ export default function ProductCard({
 
   const isWishlisted = onToggleWishlist ? initialWishlisted : localWishlisted;
 
-  const sellingPrice   = typeof price === 'string' ? parseFloat(price) : price;
-  const originalPrice  = costPrice ? (typeof costPrice === 'string' ? parseFloat(costPrice) : costPrice) : null;
+  // Same price rule as the product pages and checkout: a % discount reduces the
+  // price; costPrice above price is the crossed-out "was" price.
+  const listPrice      = typeof price === 'string' ? parseFloat(price) : price;
+  const costPriceNum   = costPrice ? (typeof costPrice === 'string' ? parseFloat(costPrice) : costPrice) : null;
   const ratingNum      = typeof rating === 'string' ? parseFloat(rating) : rating;
 
-  const discountProp     = typeof discount === 'string' ? parseFloat(discount as any) : discount || 0;
-  const computedDiscount = originalPrice && originalPrice > sellingPrice
-    ? Math.round(((originalPrice - sellingPrice) / originalPrice) * 100) : 0;
-  // Show discount from either the explicit field OR computed from costPrice vs price
-  const actualDiscount   = discountProp > 0 ? Math.round(discountProp) : computedDiscount;
-
-  // Prefer real original price; infer from discount % if missing
-  const inferredOriginalPrice = (!originalPrice && actualDiscount > 0 && actualDiscount < 100)
-    ? Math.round((sellingPrice / (1 - actualDiscount / 100)) * 100) / 100 : null;
-  const displayOriginalPrice = originalPrice ?? inferredOriginalPrice;
+  const discountProp   = typeof discount === 'string' ? parseFloat(discount as any) : discount || 0;
+  const sellingPrice   = discountProp > 0 && discountProp < 100 ? listPrice * (1 - discountProp / 100) : listPrice;
+  const displayOriginalPrice = costPriceNum && costPriceNum > sellingPrice
+    ? costPriceNum
+    : (discountProp > 0 && discountProp < 100 ? listPrice : null);
+  const actualDiscount = displayOriginalPrice && displayOriginalPrice > sellingPrice
+    ? Math.round(((displayOriginalPrice - sellingPrice) / displayOriginalPrice) * 100) : 0;
 
   const handleWishlistToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -92,7 +91,7 @@ export default function ProductCard({
       id, name, description,
       price: String(price),
       costPrice: costPrice != null ? String(costPrice) : undefined,
-      discount: actualDiscount,
+      discount: discountProp,  // the product's own field, never the computed badge value
       category: category ?? null,
       categoryName: categoryName ?? null,
       categoryId: categoryId ?? null,
@@ -184,7 +183,7 @@ export default function ProductCard({
               <span style={{
                 background: 'rgba(255,255,255,0.15)', color: '#fff',
                 fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 5,
-              }}>Out of Stock</span>
+              }}>Sold out</span>
             </div>
           )}
         </div>
@@ -268,7 +267,7 @@ export default function ProductCard({
         </Button>
         {!inStock && (
           <div className="absolute inset-0 bg-background/80 flex items-center justify-center">
-            <Badge variant="secondary" data-testid={`badge-out-of-stock-${id}`}>Out of Stock</Badge>
+            <Badge variant="secondary" data-testid={`badge-out-of-stock-${id}`}>Sold out</Badge>
           </div>
         )}
       </div>
