@@ -7,6 +7,16 @@ every change from a session is pushed to GitHub.
 
 `fix/unify-mobile-desktop-20261127` (based on `main` 9ece8cb). Merged to `main` on 27 Nov 2026 (owner approved) — `main` deploys to production (Render auto-deploy + Netlify).
 
+## Where to see the work (development preview)
+
+- **Dev preview:** https://preview--kiyumart1.netlify.app — Netlify branch deploy of the `preview` branch.
+  Keep `preview` equal to `main` (fast-forward) to see the latest work.
+- **Production** (`kiyumart1.netlify.app`): Netlify production deploys are paused while the
+  Kiyuhub team is out of build credits; it still shows the 26 Nov build.
+- The API (Render) deploys from `main` automatically, so backend fixes go live on push.
+- Verified on the dev preview (27 Nov): no "All" circle, burgundy swatch, "Sold by" row,
+  "Select a size" with no preselected size, related products.
+
 ## What the branch changes
 
 | Area | Change |
