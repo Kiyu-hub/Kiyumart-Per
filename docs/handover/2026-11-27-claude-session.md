@@ -5,8 +5,7 @@ every change from a session is pushed to GitHub.
 
 ## Branch pushed
 
-`fix/unify-mobile-desktop-20261127` (based on `main` 9ece8cb). **Not merged yet** —
-merging to `main` deploys to production (Render auto-deploy + Netlify).
+`fix/unify-mobile-desktop-20261127` (based on `main` 9ece8cb). Merged to `main` on 27 Nov 2026 (owner approved) — `main` deploys to production (Render auto-deploy + Netlify).
 
 ## What the branch changes
 
@@ -17,7 +16,7 @@ merging to `main` deploys to production (Render auto-deploy + Netlify).
 | Consistency | `/stores` on phones → storefront tiles; teal login on phones; "Sold out" everywhere; category picture fallbacks; no extra "All" circle in Shop by store / category. |
 | Desktop (no visual redesign) | Same size rule and size order as phone; measurement guides inside the existing Size Guide dialog; prices follow the checkout rule. |
 | Pricing | Displayed price = checkout price `price × (1 − discount%)` on product pages and all product cards. Test: `server/__tests__/pricing-parity.test.ts`. |
-| Size-guide pictures | `client/public/measure/body-men.svg` and `body-women.svg` redrawn as distinct figures. |
+| Size-guide pictures | `client/public/measure/body-men.svg` and `body-women.svg` redrawn as distinct figures. Items not worn on the body (bags, shoes, hijabs/scarves) show their own measuring picture (`bag.svg`, `shoes.svg`, `hijab.svg`) and no human figure; clothing shows the garment picture plus the man/woman figure. |
 
 ## Verification done (local, sample data)
 

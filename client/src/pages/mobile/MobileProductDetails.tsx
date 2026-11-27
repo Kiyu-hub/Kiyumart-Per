@@ -12,7 +12,7 @@ import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { getStoreTypeProductFields, STORE_TYPES, type StoreType } from "@shared/storeTypes";
 import MeasurementGuideView, { isMeasurementGuide } from "@/components/MeasurementGuideView";
 import { swatchFor } from "@/lib/listing";
-import { resolveWearerGender, measurementPicture } from "@/lib/measurementGuides";
+import { resolveWearerGender, measurementPicture, suggestMeasureMode, MEASUREMENT_GUIDES, type MeasurementGuideId } from "@/lib/measurementGuides";
 
 const F = '-apple-system,"SF Pro Text","SF Pro",system-ui,sans-serif';
 
@@ -145,7 +145,10 @@ function readLegacySizeGuide(raw: any) {
   const body = legacyRows(raw?.bodyRows, LEGACY_BODY_FIELDS);
   return garment.length || body.length ? { garment, body } : null;
 }
-function LegacySizeGuideView({ guide, size, gender, ink, subtle, edge, brand }: { guide: { garment: LegacyGuideRow[]; body: LegacyGuideRow[] }; size?: string; gender?: "men" | "women" | null; ink: string; subtle: string; edge: string; brand: string }) {
+// Items not worn on the body (bags, shoes, scarves/hijabs, accessories) show their
+// own measuring picture and never the human figure.
+const NON_BODY_GUIDES: MeasurementGuideId[] = ["bag", "shoes", "hijab"];
+function LegacySizeGuideView({ guide, size, gender, itemGuide, showBody = true, ink, subtle, edge, brand }: { guide: { garment: LegacyGuideRow[]; body: LegacyGuideRow[] }; size?: string; gender?: "men" | "women" | null; itemGuide?: MeasurementGuideId | null; showBody?: boolean; ink: string; subtle: string; edge: string; brand: string }) {
   const section = (title: string, rows: LegacyGuideRow[], fields: Array<[string, string]>) => {
     if (!rows.length) return null;
     const picked = size ? rows.filter(r => r.labelSize.toLowerCase() === size.toLowerCase()) : [];
@@ -173,10 +176,21 @@ function LegacySizeGuideView({ guide, size, gender, ink, subtle, edge, brand }: 
   };
   return (
     <div>
-      {section("Garment measurements", guide.garment, LEGACY_GARMENT_FIELDS)}
+      {section(showBody ? "Garment measurements" : "Measurements", guide.garment, LEGACY_GARMENT_FIELDS)}
       {section("Body measurements", guide.body, LEGACY_BODY_FIELDS)}
       <p style={{ color: subtle, fontSize: 12, lineHeight: 1.6, marginTop: 14 }}>Measured by the seller. Allow 1–2 cm difference.</p>
-      {/* Body figure for clothing: man for men's items, woman for women's items. */}
+      {itemGuide && MEASUREMENT_GUIDES[itemGuide] && (
+        <div style={{ display: "flex", gap: 16, alignItems: "center", borderTop: `1px solid ${edge}`, paddingTop: 16, marginTop: 14 }}>
+          <img src={measurementPicture(itemGuide)} alt={`${MEASUREMENT_GUIDES[itemGuide].label} measurements`} data-testid="legacy-guide-item-picture"
+            style={{ width: 120, height: 156, objectFit: "contain", background: "#fff", borderRadius: 12, border: `1px solid ${edge}`, flexShrink: 0, padding: 6 }} />
+          <div style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 1.6, color: subtle }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: ink, marginBottom: 4 }}>How it's measured</div>
+            {MEASUREMENT_GUIDES[itemGuide].label}
+          </div>
+        </div>
+      )}
+      {/* Body figure only for clothing worn on the body: man for men's items, woman for women's. */}
+      {showBody && (
       <div style={{ display: "flex", gap: 16, alignItems: "center", borderTop: `1px solid ${edge}`, paddingTop: 16, marginTop: 14 }}>
         <img src={measurementPicture(gender === "men" ? "body-men" : "body-women")} alt={gender === "men" ? "Men's body measurements" : "Women's body measurements"}
           data-testid="legacy-guide-body-figure"
@@ -186,6 +200,7 @@ function LegacySizeGuideView({ guide, size, gender, ink, subtle, edge, brand }: 
           1 {gender === "men" ? "Chest" : "Bust"} · 2 Waist · 3 Hips · 4 Height. Compare with the table to pick your size.
         </div>
       </div>
+      )}
     </div>
   );
 }
@@ -576,6 +591,17 @@ export default function MobileProductDetails() {
   const productSpecs = buildProductSpecs(product);
   const measurementGuide = isMeasurementGuide(product.dynamicFields?.measurementGuide) ? product.dynamicFields!.measurementGuide as any : null;
   const legacySizeGuide = measurementGuide ? null : readLegacySizeGuide((product.dynamicFields as any)?.sizeGuide);
+  // Which measuring picture fits this item (bag, shoes, hijab/scarf, dress, trousers…).
+  const legacyMeasure = legacySizeGuide
+    ? suggestMeasureMode({
+        storeType: (product as any)?.storeType,
+        categorySlug: `${(product as any)?.categorySlug || ""} ${String(product.category || "")}`,
+        categoryName: `${(product as any)?.categoryName || ""} ${product.name || ""}`,
+        genderTarget: resolveWearerGender(product) === "men" ? "Men" : null,
+      })
+    : null;
+  const legacyItemGuide: MeasurementGuideId | null = legacyMeasure?.mode === "garment" ? legacyMeasure.guide : null;
+  const legacyShowBody = !!legacyItemGuide && !NON_BODY_GUIDES.includes(legacyItemGuide) && legacyItemGuide !== "baby";
   const shortDesc = descText.length > 160 ? descText.slice(0, 160) + "…" : descText;
   const rating = parseFloat(String(product.ratings || "0")) || 0;
   const starsDisplay = Array.from({ length: 5 }, (_, i) => i < Math.round(rating));
@@ -756,7 +782,7 @@ export default function MobileProductDetails() {
             {measurementGuide
               ? <MeasurementGuideView data={measurementGuide} onlySize={selectedSize || undefined} gender={resolveWearerGender(product)} ink={ink} subtle={subtle} edge={edge} brand={brand} />
               : legacySizeGuide
-                ? <LegacySizeGuideView guide={legacySizeGuide} size={selectedSize || undefined} gender={resolveWearerGender(product)} ink={ink} subtle={subtle} edge={edge} brand={brand} />
+                ? <LegacySizeGuideView guide={legacySizeGuide} size={selectedSize || undefined} gender={resolveWearerGender(product)} itemGuide={legacyItemGuide} showBody={legacyShowBody} ink={ink} subtle={subtle} edge={edge} brand={brand} />
                 : <p style={{ color: subtle, lineHeight: 1.7, fontSize: 13 }}>Choose an available seller-listed size. Measurements may vary by brand; contact the seller for exact measurements.</p>}
             {measurementGuide && <button onClick={() => setEditorialSizeGuideOpen(false)} style={{ width: "100%", minHeight: 50, marginTop: 20, border: 0, borderRadius: 10, background: brand, color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>Done</button>}
             {!measurementGuide && <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 25 }}>{sizeOptions.length > 0 ? sizeOptions.map(size => <button key={size} onClick={() => { handleSizeSelect(size); setEditorialSizeGuideOpen(false); }} style={{ minWidth: 55, minHeight: 50, background: selectedSize.toLowerCase() === size.toLowerCase() ? brand : "transparent", color: selectedSize.toLowerCase() === size.toLowerCase() ? "#fff" : ink, border: `1px solid ${edge}`, borderRadius: 8 }}>{size}</button>) : <span style={{ color: subtle }}>This product has no size options.</span>}</div>}
