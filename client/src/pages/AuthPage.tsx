@@ -888,7 +888,11 @@ function PillInput({
   onChange: (v: string) => void; disabled?: boolean;
   testId?: string; rightEl?: React.ReactNode; showCheck?: boolean;
 }) {
-  const filled = value.trim().length > 0;
+  // Tick only when the entry is complete and valid — not while still typing.
+  const trimmed = value.trim();
+  const filled = type === "email"
+    ? /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)*\.[a-z]{2,}$/i.test(trimmed)
+    : trimmed.replace(/[^A-Za-z\u00C0-\u024F]/g, "").length >= 2;
 
   const handleFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 400);
