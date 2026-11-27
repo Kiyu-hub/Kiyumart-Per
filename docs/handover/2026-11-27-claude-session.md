@@ -23,7 +23,7 @@ every change from a session is pushed to GitHub.
 |---|---|
 | Security | Public store endpoints return an allowlist of public fields (`server/publicStore.ts`). Super Admin / seller data stays on protected endpoints. Test: `server/__tests__/public-store-fields.test.ts`. |
 | Phone product page | No preselected size ("Select a size"); real colour swatches; "Sold by" seller row; "You may also like"; desktop-entered size guides shown; man/woman body figure by target wearer. |
-| Consistency | `/stores` on phones → storefront tiles; teal login on phones; "Sold out" everywhere; category picture fallbacks; no extra "All" circle in Shop by store / category. |
+| Consistency | `/stores` on phones → storefront tiles; "Sold out" everywhere; category picture fallbacks; no extra "All" circle in Shop by store / category. |
 | Desktop (no visual redesign) | Same size rule and size order as phone; measurement guides inside the existing Size Guide dialog; prices follow the checkout rule. |
 | Pricing | Displayed price = checkout price `price × (1 − discount%)` on product pages and all product cards. Test: `server/__tests__/pricing-parity.test.ts`. |
 | Size-guide pictures | `client/public/measure/body-men.svg` and `body-women.svg` redrawn as distinct figures. Items not worn on the body (bags, shoes, hijabs/scarves) show their own measuring picture (`bag.svg`, `shoes.svg`, `hijab.svg`) and no human figure; clothing shows the garment picture plus the man/woman figure. |

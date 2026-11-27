@@ -212,15 +212,15 @@ export default function AuthPage() {
               <button
                 type="submit"
                 disabled={desktopOtp.join("").length < 6 || isDesktopVerifying}
-                className="w-full h-12 rounded-xl bg-[#009688] text-white text-[15px] font-bold disabled:opacity-40"
+                className="w-full h-12 rounded-xl bg-[#1A4A3C] text-white text-[15px] font-bold disabled:opacity-40"
               >
                 {isDesktopVerifying ? "Verifying…" : "Verify Email"}
               </button>
               <div className="text-center text-sm text-gray-400">
                 {desktopResendCountdown > 0 ? (
-                  <span>Resend in <span className="font-bold text-[#009688]">{desktopResendCountdown}s</span></span>
+                  <span>Resend in <span className="font-bold text-[#1A4A3C]">{desktopResendCountdown}s</span></span>
                 ) : (
-                  <button type="button" onClick={resendDesktopOtp} disabled={isDesktopResending} className="text-[#009688] font-bold disabled:opacity-50">
+                  <button type="button" onClick={resendDesktopOtp} disabled={isDesktopResending} className="text-[#1A4A3C] font-bold disabled:opacity-50">
                     {isDesktopResending ? "Sending…" : "Resend Code"}
                   </button>
                 )}
@@ -289,8 +289,8 @@ const PW_RULES = [
   { label: "One number",            test: (p: string) => /[0-9]/.test(p) },
 ];
 
-const DARK = "#009688";
-const BTN  = "#009688";
+const DARK = "#1A4A3C";
+const BTN  = "#1A4A3C";
 
 function MobileAuth({
   onLogin, onSignup, isLoggingIn, isSigningUp, referralCode,
@@ -505,7 +505,7 @@ function MobileAuth({
           </Field>
 
           <div className="text-right -mt-1">
-            <button type="button" onClick={toForgot} className="text-[#009688] text-[13px] font-semibold">
+            <button type="button" onClick={toForgot} className="text-[#1A4A3C] text-[13px] font-semibold">
               Forgot password?
             </button>
           </div>
@@ -516,7 +516,7 @@ function MobileAuth({
 
           <p className="text-center text-gray-400 text-[14px] pb-2">
             Don't have an account?{" "}
-            <button type="button" onClick={toSignup} className="font-bold text-[#009688]">
+            <button type="button" onClick={toSignup} className="font-bold text-[#1A4A3C]">
               Sign up.
             </button>
           </p>
@@ -555,15 +555,15 @@ function MobileAuth({
                   {[0,1,2,3].map(i => (
                     <div key={i} className={cn("h-1.5 flex-1 rounded-full transition-all duration-300",
                       i < metCount
-                        ? metCount <= 1 ? "bg-red-400" : metCount <= 2 ? "bg-orange-400" : metCount <= 3 ? "bg-yellow-400" : "bg-[#009688]"
+                        ? metCount <= 1 ? "bg-red-400" : metCount <= 2 ? "bg-orange-400" : metCount <= 3 ? "bg-yellow-400" : "bg-[#22C55E]"
                         : "bg-gray-200",
                     )} />
                   ))}
                 </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                   {pwRules.map(r => (
-                    <div key={r.label} className={cn("flex items-center gap-1.5 text-[11px] font-medium", r.met ? "text-[#009688]" : "text-gray-300")}>
-                      <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", r.met ? "bg-[#009688]" : "bg-gray-200")} />
+                    <div key={r.label} className={cn("flex items-center gap-1.5 text-[11px] font-medium", r.met ? "text-[#1A4A3C]" : "text-gray-300")}>
+                      <div className={cn("w-1.5 h-1.5 rounded-full shrink-0", r.met ? "bg-[#22C55E]" : "bg-gray-200")} />
                       {r.label}
                     </div>
                   ))}
@@ -579,7 +579,7 @@ function MobileAuth({
             </p>
             {locStatus === "idle" && (
               <button type="button" onClick={requestLocation}
-                className="w-full h-14 rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center gap-2 text-gray-400 text-[14px] bg-white touch-ripple active:border-[#009688] active:text-[#009688] transition-colors">
+                className="w-full h-14 rounded-2xl border-2 border-dashed border-gray-200 flex items-center justify-center gap-2 text-gray-400 text-[14px] bg-white touch-ripple active:border-[#1A4A3C] active:text-[#1A4A3C] transition-colors">
                 <MapPin className="w-4 h-4" /> Allow Location Access
               </button>
             )}
@@ -589,7 +589,7 @@ function MobileAuth({
               </div>
             )}
             {locStatus === "granted" && (
-              <div className="h-14 rounded-2xl bg-[#009688]/8 border border-[#009688]/20 flex items-center justify-center gap-2 text-[#009688] text-[14px] font-semibold">
+              <div className="h-14 rounded-2xl bg-[#1A4A3C]/8 border border-[#1A4A3C]/20 flex items-center justify-center gap-2 text-[#1A4A3C] text-[14px] font-semibold">
                 <CheckCircle className="w-4 h-4" /> Location captured
               </div>
             )}
@@ -607,7 +607,7 @@ function MobileAuth({
           </div>
 
           {referralCode && (
-            <div className="h-12 rounded-2xl bg-[#009688]/8 border border-[#009688]/20 flex items-center justify-center gap-2 text-[#009688] text-[13px] font-semibold">
+            <div className="h-12 rounded-2xl bg-[#1A4A3C]/8 border border-[#1A4A3C]/20 flex items-center justify-center gap-2 text-[#1A4A3C] text-[13px] font-semibold">
               <CheckCircle className="w-4 h-4" /> Referral code applied
             </div>
           )}
@@ -618,7 +618,7 @@ function MobileAuth({
 
           <p className="text-center text-gray-400 text-[14px] pb-2">
             Already have an account?{" "}
-            <button type="button" onClick={toLogin} className="font-bold text-[#009688]">Please Login.</button>
+            <button type="button" onClick={toLogin} className="font-bold text-[#1A4A3C]">Please Login.</button>
           </p>
         </form>
       )}
@@ -627,8 +627,8 @@ function MobileAuth({
       {screen === "forgot" && (
         resetDone ? (
           <div className="flex flex-col items-center text-center gap-5 py-4">
-            <div className="w-20 h-20 rounded-full bg-[#009688]/10 flex items-center justify-center">
-              <CheckCircle className="w-10 h-10 text-[#009688]" />
+            <div className="w-20 h-20 rounded-full bg-[#1A4A3C]/10 flex items-center justify-center">
+              <CheckCircle className="w-10 h-10 text-[#22C55E]" />
             </div>
             <div>
               <p className="text-gray-900 text-[22px] font-black">Request Sent!</p>
@@ -679,8 +679,8 @@ function MobileAuth({
                 className={cn(
                   "w-12 h-14 text-center text-[22px] font-black border-2 rounded-2xl outline-none transition-all",
                   "bg-white text-gray-900 placeholder:text-gray-200",
-                  "focus:border-[#009688] focus:ring-2 focus:ring-[#009688]/10",
-                  digit ? "border-[#009688]" : "border-gray-200",
+                  "focus:border-[#1A4A3C] focus:ring-2 focus:ring-[#1A4A3C]/10",
+                  digit ? "border-[#1A4A3C]" : "border-gray-200",
                   "disabled:opacity-40",
                 )}
               />
@@ -703,14 +703,14 @@ function MobileAuth({
             {resendCountdown > 0 ? (
               <p className="text-gray-400 text-[14px]">
                 Resend code in{" "}
-                <span className="font-bold text-[#009688]">{resendCountdown}s</span>
+                <span className="font-bold text-[#1A4A3C]">{resendCountdown}s</span>
               </p>
             ) : (
               <button
                 type="button"
                 onClick={resendOtp}
                 disabled={isResending}
-                className="text-[#009688] text-[14px] font-bold disabled:opacity-50"
+                className="text-[#1A4A3C] text-[14px] font-bold disabled:opacity-50"
               >
                 {isResending ? "Sending…" : "Resend Code"}
               </button>
@@ -719,7 +719,7 @@ function MobileAuth({
 
           <p className="text-center text-gray-400 text-[14px] pb-2">
             Wrong account?{" "}
-            <button type="button" onClick={toLogin} className="font-bold text-[#009688]">
+            <button type="button" onClick={toLogin} className="font-bold text-[#1A4A3C]">
               Sign in instead.
             </button>
           </p>
@@ -905,11 +905,11 @@ function PillInput({
         disabled={disabled}
         data-testid={testId}
         required
-        className="w-full h-14 px-4 bg-white border border-gray-200 rounded-2xl text-gray-900 text-[15px] placeholder:text-gray-300 outline-none transition-all disabled:opacity-50 focus:border-[#009688] focus:ring-2 focus:ring-[#009688]/10"
+        className="w-full h-14 px-4 bg-white border border-gray-200 rounded-2xl text-gray-900 text-[15px] placeholder:text-gray-300 outline-none transition-all disabled:opacity-50 focus:border-[#1A4A3C] focus:ring-2 focus:ring-[#1A4A3C]/10"
         style={{ paddingRight: (showCheck || rightEl) ? "3rem" : "1rem" }}
       />
       {showCheck && filled && !rightEl && (
-        <div className="absolute right-3.5 w-6 h-6 rounded-full bg-[#009688] flex items-center justify-center pointer-events-none">
+        <div className="absolute right-3.5 w-6 h-6 rounded-full bg-[#22C55E] flex items-center justify-center pointer-events-none">
           <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12">
             <path d="M2 6l3 3 5-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
