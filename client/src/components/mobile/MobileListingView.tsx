@@ -307,7 +307,20 @@ export default function MobileListingView(props: Props) {
             {shortcuts.map((c: any) => (
               <button key={c.id} type="button" onClick={() => navigate(`/products?category=${c.id}`)}
                 style={{ flex: "none", width: 68, background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--mt)", textAlign: "center" }}>
-                <img src={c.image} alt="" loading="lazy" style={{ width: 62, height: 62, borderRadius: 31, objectFit: "cover", display: "block", margin: "0 auto", background: "var(--msh)" }} />
+                {/* If the category picture fails to load, fall back to a product photo
+                    from that category, then to the category initials (never a blank circle). */}
+                <span style={{ position: "relative", width: 62, height: 62, borderRadius: 31, display: "grid", placeItems: "center", margin: "0 auto", background: "var(--msh)", color: TEAL, fontWeight: 800, fontSize: 18, overflow: "hidden" }}>
+                  {String(c.name || "?").trim().slice(0, 1).toUpperCase()}
+                  <img src={c.image} alt="" loading="lazy"
+                    data-fallback={(Array.isArray(products) ? products.find((p: any) => String(p?.categoryId) === String(c.id) && Array.isArray(p?.images) && p.images[0]) : null)?.images?.[0] || ""}
+                    onError={(e) => {
+                      const img = e.currentTarget;
+                      const fb = img.dataset.fallback;
+                      if (fb && img.src !== fb && !img.dataset.triedFallback) { img.dataset.triedFallback = "1"; img.src = fb; }
+                      else img.style.display = "none";
+                    }}
+                    style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                </span>
                 <span style={{ display: "block", fontSize: 11, fontWeight: 600, lineHeight: 1.2, marginTop: 5 }}>{String(c.name).split(" & ")[0]}</span>
               </button>
             ))}

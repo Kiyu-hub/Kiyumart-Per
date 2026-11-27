@@ -182,11 +182,11 @@ function CategoryCircle({ cat, onClick }: { cat: any; onClick: () => void }) {
     }}>
       <div style={{
         width: 68, height: 68, borderRadius: 34, overflow: 'hidden', background: SHI,
-        boxShadow: `0 0 0 1px ${MO}`, display: 'grid', placeItems: 'center',
+        boxShadow: `0 0 0 1px ${MO}`, display: 'grid', placeItems: 'center', position: 'relative',
       }}>
-        {cat?.image
-          ? <img src={cat.image} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-          : <span style={{ fontSize: 24, fontWeight: 700, color: TEAL }}>{initial}</span>}
+        {/* Initial always underneath; a missing or broken picture never leaves a blank circle. */}
+        <span style={{ fontSize: 24, fontWeight: 700, color: TEAL }}>{initial}</span>
+        {cat?.image && <img src={cat.image} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = 'none'; }} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
       </div>
       <span style={{
         fontSize: 11.5, fontWeight: 600, color: MT, lineHeight: 1.2, textAlign: 'center', width: '100%',
@@ -754,20 +754,7 @@ export function MobileHomeFashion({
                     : visibleCats.slice(0, 8).map((cat: any) => (
                         <CategoryCircle key={cat.id} cat={cat} onClick={() => navigate(`/products?category=${cat.id}`)} />
                       ))}
-                  <button
-                    onClick={() => navigate(discoveryByStore ? '/mobile/stores' : '/categories')}
-                    className="kmf-press"
-                    aria-label={discoveryByStore ? 'All stores' : 'All categories'}
-                    style={{
-                      flex: 'none', width: 72, background: 'none', border: 'none', padding: 0,
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 7, cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ width: 68, height: 68, borderRadius: 34, background: S, boxShadow: `0 0 0 1px ${MO}`, display: 'grid', placeItems: 'center' }}>
-                      <Ico name="chevRight" size={22} color={TEAL} />
-                    </div>
-                    <span style={{ fontSize: 11.5, fontWeight: 600, color: MT }}>All</span>
-                  </button>
+                  {/* No extra "All" circle: the section's "See all" link opens the full list. */}
                 </>}
           </div>
         </section>

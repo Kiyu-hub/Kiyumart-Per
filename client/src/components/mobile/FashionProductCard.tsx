@@ -26,17 +26,18 @@ export const FASHION_CARD_CSS = `
 @media (prefers-reduced-motion: reduce){.kmf-press{transition:none}}
 `;
 
-// ── Price / discount helper (same rules as MobileHome ProductCard) ────────────
+// ── Price / discount helper — same rule as checkout and the product pages ─────
+// A % discount reduces the price (price × (1 − discount%)); costPrice above the
+// price is the crossed-out "was" price.
 export function priceInfo(product: any) {
-  const price     = parseFloat(product?.price ?? '0');
+  const listPrice = parseFloat(product?.price ?? '0') || 0;
   const costPrice = product?.costPrice ? parseFloat(product.costPrice) : null;
-  const discField = parseFloat(product?.discount ?? '0');
-  const computedDisc = costPrice && costPrice > price
-    ? Math.round(((costPrice - price) / costPrice) * 100) : 0;
-  const disc = discField > 0 ? Math.round(discField) : computedDisc;
-  const was  = disc > 0
-    ? (costPrice && costPrice > price ? costPrice : price / (1 - disc / 100))
-    : null;
+  const discField = parseFloat(product?.discount ?? '0') || 0;
+  const price = discField > 0 && discField < 100 ? listPrice * (1 - discField / 100) : listPrice;
+  const was = costPrice && costPrice > price
+    ? costPrice
+    : (discField > 0 && discField < 100 ? listPrice : null);
+  const disc = was && was > price ? Math.round(((was - price) / was) * 100) : 0;
   return { price, disc, was };
 }
 

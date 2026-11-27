@@ -266,3 +266,21 @@ export function suggestSizePresets(input: { categorySlug?: string | null; catego
   if (input.guide === "hijab" || input.guide === "bag") return ["One size"];
   return ["XS", "S", "M", "L", "XL", "XXL", "XXXL", "Free size"];
 }
+
+/**
+ * Who a clothing item is for, so the size guide shows the matching body figure
+ * (man for men's clothing, woman for women's). Uses the seller's "Target Wearer"
+ * first, then words in the category / product name. Returns null when unknown.
+ */
+export function resolveWearerGender(product: any): "men" | "women" | null {
+  const df = product?.dynamicFields || {};
+  const explicit = String(df?.storeSpecific?.genderTarget ?? df?.genderTarget ?? product?.genderTarget ?? "").toLowerCase().trim();
+  if (/^(men|man|male|boys?|gents?)$/.test(explicit)) return "men";
+  if (/^(women|woman|female|ladies|girls?)$/.test(explicit)) return "women";
+  const text = [product?.categoryName, product?.category, product?.name].map((v) => String(v ?? "")).join(" ").toLowerCase();
+  const isWomen = /\b(women'?s?|woman|ladies|female|girls?|abayas?|hijabs?|dress(es)?|gowns?|skirts?|kaftans?|blouses?|bras?)\b/.test(text);
+  const isMen = /\b(men'?s?|man|male|gents?|boys?|thobes?|jalabiyas?|kanzus?)\b/.test(text);
+  if (isMen && !isWomen) return "men";
+  if (isWomen && !isMen) return "women";
+  return null;
+}

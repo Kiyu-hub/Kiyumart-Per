@@ -11,6 +11,8 @@ import Product3DViewer, { canShow3DViewer } from "@/components/Product3DViewer";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { getStoreTypeProductFields, STORE_TYPES, type StoreType } from "@shared/storeTypes";
 import MeasurementGuideView, { isMeasurementGuide } from "@/components/MeasurementGuideView";
+import { swatchFor } from "@/lib/listing";
+import { resolveWearerGender, measurementPicture } from "@/lib/measurementGuides";
 
 const F = '-apple-system,"SF Pro Text","SF Pro",system-ui,sans-serif';
 
@@ -112,16 +114,81 @@ const VARIANT_COLOR_PRESETS: Record<string, string> = {
   cream: "#f5f5dc", beige: "#d6c3a5",
 };
 
+// Seller-entered colour name → swatch. Hex values are used as-is; names are
+// looked up in the shared palette (lib/listing) so "Burgundy", "Navy" etc. show
+// their real colour. Unknown names get a neutral swatch, never the brand teal.
 const resolveColorSwatch = (value?: string | null) => {
   const raw = String(value || "").trim();
-  if (!raw) return "#14b8a6";
+  if (!raw) return "#c9c5be";
   if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(raw)) return raw;
+  const shared = swatchFor(raw.replace(/[,/]+/g, " "));
+  if (shared !== "#c9c5be") return shared;
   const token = raw.split(/[,\s/]+/).find(Boolean)?.toLowerCase() || "";
-  return VARIANT_COLOR_PRESETS[token] || "#14b8a6";
+  return VARIANT_COLOR_PRESETS[token] || "#c9c5be";
 };
 
 const splitSizes = (v?: string | null) =>
   String(v || "").split(",").map(s => s.trim()).filter(Boolean);
+
+// Size guides entered with the desktop seller form (dynamicFields.sizeGuide:
+// bodyRows / productRows). Phones show them too, so a guide is never lost just
+// because the product was listed on a computer.
+type LegacyGuideRow = Record<string, string>;
+const LEGACY_GARMENT_FIELDS: Array<[string, string]> = [["length", "Length"], ["bust", "Bust / chest"], ["waist", "Waist"], ["hips", "Hips"], ["shoulder", "Shoulder"], ["sleeve", "Sleeve"]];
+const LEGACY_BODY_FIELDS: Array<[string, string]> = [["uk", "UK size"], ["bust", "Bust / chest"], ["waist", "Waist"], ["hips", "Hips"], ["height", "Height"]];
+const legacyRows = (rows: unknown, fields: Array<[string, string]>): LegacyGuideRow[] =>
+  (Array.isArray(rows) ? rows : [])
+    .filter((r: any) => r && typeof r === "object" && fields.some(([k]) => String(r[k] ?? "").trim()))
+    .map((r: any) => ({ ...r, labelSize: String(r.labelSize ?? r.size ?? "").trim() }));
+function readLegacySizeGuide(raw: any) {
+  const garment = legacyRows(raw?.productRows, LEGACY_GARMENT_FIELDS);
+  const body = legacyRows(raw?.bodyRows, LEGACY_BODY_FIELDS);
+  return garment.length || body.length ? { garment, body } : null;
+}
+function LegacySizeGuideView({ guide, size, gender, ink, subtle, edge, brand }: { guide: { garment: LegacyGuideRow[]; body: LegacyGuideRow[] }; size?: string; gender?: "men" | "women" | null; ink: string; subtle: string; edge: string; brand: string }) {
+  const section = (title: string, rows: LegacyGuideRow[], fields: Array<[string, string]>) => {
+    if (!rows.length) return null;
+    const picked = size ? rows.filter(r => r.labelSize.toLowerCase() === size.toLowerCase()) : [];
+    const shown = picked.length ? picked : rows;
+    const cols = fields.filter(([k]) => shown.some(r => String(r[k] ?? "").trim()));
+    return (
+      <div style={{ marginTop: 20 }}>
+        <strong style={{ fontSize: 13, color: ink }}>{title}</strong>
+        <div style={{ overflowX: "auto", marginTop: 8 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, color: ink }}>
+            <thead><tr>
+              <th style={{ textAlign: "left", padding: "8px 6px", borderBottom: `1px solid ${edge}`, color: subtle, fontWeight: 600 }}>Size</th>
+              {cols.map(([k, label]) => <th key={k} style={{ textAlign: "left", padding: "8px 6px", borderBottom: `1px solid ${edge}`, color: subtle, fontWeight: 600, whiteSpace: "nowrap" }}>{label}</th>)}
+            </tr></thead>
+            <tbody>{shown.map((r, i) => (
+              <tr key={`${r.labelSize}-${i}`}>
+                <td style={{ padding: "9px 6px", borderBottom: `1px solid ${edge}`, fontWeight: 800, color: brand }}>{r.labelSize || "—"}</td>
+                {cols.map(([k]) => <td key={k} style={{ padding: "9px 6px", borderBottom: `1px solid ${edge}`, whiteSpace: "nowrap" }}>{String(r[k] ?? "").trim() || "—"}</td>)}
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+  return (
+    <div>
+      {section("Garment measurements", guide.garment, LEGACY_GARMENT_FIELDS)}
+      {section("Body measurements", guide.body, LEGACY_BODY_FIELDS)}
+      <p style={{ color: subtle, fontSize: 12, lineHeight: 1.6, marginTop: 14 }}>Measured by the seller. Allow 1–2 cm difference.</p>
+      {/* Body figure for clothing: man for men's items, woman for women's items. */}
+      <div style={{ display: "flex", gap: 16, alignItems: "center", borderTop: `1px solid ${edge}`, paddingTop: 16, marginTop: 14 }}>
+        <img src={measurementPicture(gender === "men" ? "body-men" : "body-women")} alt={gender === "men" ? "Men's body measurements" : "Women's body measurements"}
+          data-testid="legacy-guide-body-figure"
+          style={{ width: 96, height: 192, objectFit: "contain", background: "#fff", borderRadius: 12, border: `1px solid ${edge}`, flexShrink: 0, padding: 6 }} />
+        <div style={{ flex: 1, minWidth: 0, fontSize: 13, lineHeight: 1.6, color: subtle }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: ink, marginBottom: 4 }}>Measure yourself</div>
+          1 {gender === "men" ? "Chest" : "Bust"} · 2 Waist · 3 Hips · 4 Height. Compare with the table to pick your size.
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const getVariantImages = (v?: ProductVariant | null) => {
   if (Array.isArray(v?.images) && v.images.length > 0) return v.images.filter(Boolean);
@@ -274,7 +341,18 @@ export default function MobileProductDetails() {
     ).filter(Boolean)
   )));
 
-  const selectedSize = selectedSizeOption || sizeOptions[0] || splitSizes(selectedVariantBase?.size)[0] || "";
+  // Deliberate size choice: when a product has more than one size, nothing is
+  // preselected — the shopper must pick one before adding to cart. A single
+  // size (or a variant with one size) is still chosen automatically.
+  const sizeChoiceValid = !!selectedSizeOption && sizeOptions.some(s => s.toLowerCase() === selectedSizeOption.toLowerCase());
+  const needsSizeChoice = sizeOptions.length > 1 && !sizeChoiceValid;
+  const selectedSize = sizeChoiceValid
+    ? selectedSizeOption
+    : sizeOptions.length === 1
+      ? sizeOptions[0]
+      : sizeOptions.length === 0
+        ? (splitSizes(selectedVariantBase?.size)[0] || "")
+        : "";
 
   const selectedVariant =
     selectedColorGroup?.variants.find(v => splitSizes(v.size).some(s => s.toLowerCase() === selectedSize.toLowerCase()))
@@ -284,7 +362,9 @@ export default function MobileProductDetails() {
     || null;
 
   const availableStock = product
-    ? selectedVariant
+    ? needsSizeChoice
+      ? (selectedColorGroup?.stock ?? availableVariants.reduce((sum, v) => sum + Number(v.stock || 0), 0))
+      : selectedVariant
       ? selectedVariant.stock
       : selectedColorGroup
         ? selectedColorGroup.stock
@@ -368,7 +448,7 @@ export default function MobileProductDetails() {
   useEffect(() => {
     if (!sizeOptions.length) { setSelectedSizeOption(""); return; }
     if (!selectedSizeOption || !sizeOptions.some(s => s.toLowerCase() === selectedSizeOption.toLowerCase())) {
-      setSelectedSizeOption(sizeOptions[0]);
+      setSelectedSizeOption(sizeOptions.length === 1 ? sizeOptions[0] : "");
     }
   }, [sizeOptions.join(",")]);
 
@@ -429,7 +509,7 @@ export default function MobileProductDetails() {
       setSelectedVariantId(v.id);
       const nextSizes = grp?.sizes || splitSizes(v.size);
       const preserved = nextSizes.find(s => s.toLowerCase() === selectedSize.toLowerCase());
-      setSelectedSizeOption(preserved || nextSizes[0] || "");
+      setSelectedSizeOption(preserved || (nextSizes.length === 1 ? nextSizes[0] : ""));
       setSelectedImage(0);
     }
   };
@@ -445,6 +525,11 @@ export default function MobileProductDetails() {
   };
 
   const handleAddToCart = async () => {
+    if (needsSizeChoice) {
+      setEditorialPurchaseOpen(true);
+      toast({ title: "Choose a size", description: "Please select your size before adding to cart." });
+      return;
+    }
     const activeUser = await ensureAuthenticated();
     if (!activeUser) { navigate("/auth"); return; }
     const isOwn = user?.role === "seller" && String(product?.sellerId) === String(user?.id);
@@ -490,6 +575,7 @@ export default function MobileProductDetails() {
   const descText = String(product.description || "").trim();
   const productSpecs = buildProductSpecs(product);
   const measurementGuide = isMeasurementGuide(product.dynamicFields?.measurementGuide) ? product.dynamicFields!.measurementGuide as any : null;
+  const legacySizeGuide = measurementGuide ? null : readLegacySizeGuide((product.dynamicFields as any)?.sizeGuide);
   const shortDesc = descText.length > 160 ? descText.slice(0, 160) + "…" : descText;
   const rating = parseFloat(String(product.ratings || "0")) || 0;
   const starsDisplay = Array.from({ length: 5 }, (_, i) => i < Math.round(rating));
@@ -571,6 +657,30 @@ export default function MobileProductDetails() {
               ? <span style={{ color: brand, fontSize: 12, fontWeight: 700 }}>−{Math.round((1 - sellingPrice / originalPrice) * 100)}%</span>
               : product.discount != null && product.discount > 0 && <span style={{ color: brand, fontSize: 12, fontWeight: 700 }}>−{product.discount}%</span>}
           </div>
+          {_3dStoreCheck?.name && (
+            <button
+              onClick={() => navigate(`/sellers/${_3dStoreCheck.primarySellerId || product.sellerId}`)}
+              aria-label={`Visit ${_3dStoreCheck.name}`}
+              data-testid="pdp-seller-row"
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 0", marginBottom: 8, background: "transparent", border: 0, borderTop: `1px solid ${edge}`, borderBottom: `1px solid ${edge}`, color: ink, cursor: "pointer", textAlign: "left" }}
+            >
+              <span style={{ width: 40, height: 40, borderRadius: "50%", overflow: "hidden", flexShrink: 0, background: edge, display: "grid", placeItems: "center", fontWeight: 800, fontSize: 14, color: brand }}>
+                {_3dStoreCheck.logo
+                  ? <img src={_3dStoreCheck.logo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  : String(_3dStoreCheck.name).trim().slice(0, 2).toUpperCase()}
+              </span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "block", fontSize: 11, color: subtle, letterSpacing: 0.3 }}>Sold by</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {_3dStoreCheck.name}
+                  {_3dStoreCheck.verificationStatus === "approved" && (
+                    <span style={{ fontSize: 10, fontWeight: 800, color: "#fff", background: brand, borderRadius: 999, padding: "2px 7px", flexShrink: 0 }}>✓ Verified</span>
+                  )}
+                </span>
+              </span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: brand, flexShrink: 0 }}>Visit store ›</span>
+            </button>
+          )}
           {galleryImages.length > 1 && <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 12 }}>
             {galleryImages.map((src, i) => <button key={i} onClick={() => setSelectedImage(i)} aria-label={`View photo ${i + 1}`} aria-pressed={i === selectedImage} style={{ padding: 0, borderRadius: 8, width: 56, height: 72, flexShrink: 0, overflow: "hidden", border: i === selectedImage ? `2px solid ${brand}` : `1px solid ${edge}`, background: edge }}>
               <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -592,15 +702,36 @@ export default function MobileProductDetails() {
             <div style={{ display: "flex", gap: 9, flexWrap: "wrap" }}>{sizeOptions.map(size => <button key={size} onClick={() => handleSizeSelect(size)} aria-pressed={size.toLowerCase() === selectedSize.toLowerCase()}
               style={{ minWidth: 51, minHeight: 46, borderRadius: 8, border: size.toLowerCase() === selectedSize.toLowerCase() ? `2px solid ${brand}` : `1px solid ${edge}`, background: size.toLowerCase() === selectedSize.toLowerCase() ? brand : "transparent", color: size.toLowerCase() === selectedSize.toLowerCase() ? "white" : ink, fontWeight: 700, cursor: "pointer", padding: "0 12px" }}>{size}</button>)}</div>
           </div>}
-          <div style={{ fontSize: 12, color: availableStock > 0 ? brand : "#C64040", padding: "9px 0 20px", fontWeight: 700 }}>{availableStock > 0 ? (availableStock <= 5 ? `Only ${availableStock} remaining` : "Available") : "Out of stock"}</div>
+          {needsSizeChoice && availableStock > 0 && <div role="status" style={{ fontSize: 12, color: subtle, paddingTop: 2 }}>Please choose your size.</div>}
+          <div style={{ fontSize: 12, color: availableStock > 0 ? brand : "#C64040", padding: "9px 0 20px", fontWeight: 700 }}>{availableStock > 0 ? (availableStock <= 5 ? `Only ${availableStock} remaining` : "Available") : "Sold out"}</div>
           <button onClick={() => setEditorialDetailsOpen(true)} style={sectionButton}><span>Product details & care</span><span>＋</span></button>
-          {(sizeOptions.length > 0 || measurementGuide) && <button onClick={() => setEditorialSizeGuideOpen(true)} style={sectionButton}><span>{measurementGuide ? "Size & measurements" : "Size & fit"}</span><span>↗</span></button>}
+          {(sizeOptions.length > 0 || measurementGuide || legacySizeGuide) && <button onClick={() => setEditorialSizeGuideOpen(true)} style={sectionButton}><span>{measurementGuide || legacySizeGuide ? "Size & measurements" : "Size & fit"}</span><span>↗</span></button>}
           {descText && <div style={{ borderTop: `1px solid ${edge}`, padding: "19px 0 6px", fontSize: 13, lineHeight: 1.7, color: subtle, whiteSpace: "pre-wrap" }}>{descText}</div>}
           {productSpecs.length > 0 && <dl style={{ margin: "12px 0 25px" }}>
             {productSpecs.map(row => <div key={row.label} style={{ borderTop: `1px solid ${edge}`, display: "flex", justifyContent: "space-between", gap: 20, padding: "13px 0", fontSize: 13 }}>
               <dt style={{ color: subtle }}>{row.label}</dt><dd style={{ margin: 0, color: ink, fontWeight: 600, textAlign: "right" }}>{row.value}</dd>
             </div>)}
           </dl>}
+          {relatedProducts.length > 0 && (
+            <div data-testid="pdp-related" style={{ borderTop: `1px solid ${edge}`, paddingTop: 18, marginTop: 6 }}>
+              <strong style={{ display: "block", fontSize: 14, marginBottom: 12 }}>You may also like</strong>
+              <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 6 }}>
+                {relatedProducts.map(rp => {
+                  const rPrice = getCurrentSellingPrice({ price: rp.price, costPrice: rp.costPrice ?? null, discount: rp.discount ?? null });
+                  return (
+                    <button key={rp.id} onClick={() => { setEditorialPurchaseOpen(false); navigate(`/product/${rp.id}`); }}
+                      style={{ width: 128, flexShrink: 0, background: "none", border: 0, padding: 0, cursor: "pointer", textAlign: "left", color: ink }}>
+                      <span style={{ display: "block", width: 128, height: 170, borderRadius: 10, overflow: "hidden", background: edge, marginBottom: 6 }}>
+                        {rp.images?.[0] && <img src={rp.images[0]} alt={rp.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />}
+                      </span>
+                      <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as any, overflow: "hidden", fontSize: 12, fontWeight: 600, lineHeight: 1.25 }}>{rp.name}</span>
+                      <span style={{ display: "block", fontSize: 12, fontWeight: 800, color: brand, marginTop: 3 }}>{formatPrice(rPrice)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </section>
         {editorialPurchaseOpen && <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 45, background: paper, borderTop: `1px solid ${edge}`, padding: "12px 18px max(12px, env(safe-area-inset-bottom, 12px))", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 -7px 24px rgba(0,0,0,.05)" }}>
           <div style={{ display: "flex", alignItems: "center", border: `1px solid ${edge}`, borderRadius: 9, minHeight: 49 }}>
@@ -609,7 +740,7 @@ export default function MobileProductDetails() {
             <button aria-label="Increase quantity" onClick={() => setQuantity(q => Math.min(remainingToAdd || 1, q + 1))} disabled={remainingToAdd <= quantity} style={{ border: 0, background: "transparent", color: ink, width: 36, height: 44, fontSize: 20 }}>+</button>
           </div>
           <button onClick={handleAddToCart} disabled={availableStock <= 0 || allInCart || addToCartMutation.isPending} style={{ flex: 1, minHeight: 50, background: availableStock > 0 && !allInCart ? brand : subtle, color: "#fff", border: 0, borderRadius: 10, fontWeight: 800, fontSize: 14, cursor: "pointer" }}>
-            {addToCartMutation.isPending ? "Adding…" : addedToCart ? "Added ✓" : allInCart ? "In cart" : availableStock <= 0 ? "Out of stock" : "Add to cart"}
+            {addToCartMutation.isPending ? "Adding…" : addedToCart ? "Added ✓" : availableStock <= 0 ? "Sold out" : needsSizeChoice ? "Select a size" : allInCart ? "In cart" : "Add to cart"}
           </button>
         </div>}
         {editorialDetailsOpen && <div role="presentation" onClick={() => setEditorialDetailsOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(0,0,0,.56)", display: "flex", alignItems: "flex-end" }}>
@@ -623,8 +754,10 @@ export default function MobileProductDetails() {
           <section role="dialog" data-fullscreen="" aria-modal="true" aria-label="Size and fit guide" onClick={e => e.stopPropagation()} style={{ width: "100%", maxHeight: "80dvh", overflowY: "auto", background: paper, borderRadius: "24px 24px 0 0", padding: "26px 22px max(30px, env(safe-area-inset-bottom, 30px))" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><h2 style={{ margin: 0, fontSize: 23 }}>Size & fit</h2><button onClick={() => setEditorialSizeGuideOpen(false)} aria-label="Close" style={{ border: 0, background: edge, borderRadius: "50%", width: 36, height: 36, color: ink }}>×</button></div>
             {measurementGuide
-              ? <MeasurementGuideView data={measurementGuide} onlySize={selectedSize || undefined} gender={(product as any)?.dynamicFields?.storeSpecific?.genderTarget || null} ink={ink} subtle={subtle} edge={edge} brand={brand} />
-              : <p style={{ color: subtle, lineHeight: 1.7, fontSize: 13 }}>Choose an available seller-listed size. Measurements may vary by brand; contact the seller for exact measurements.</p>}
+              ? <MeasurementGuideView data={measurementGuide} onlySize={selectedSize || undefined} gender={resolveWearerGender(product)} ink={ink} subtle={subtle} edge={edge} brand={brand} />
+              : legacySizeGuide
+                ? <LegacySizeGuideView guide={legacySizeGuide} size={selectedSize || undefined} gender={resolveWearerGender(product)} ink={ink} subtle={subtle} edge={edge} brand={brand} />
+                : <p style={{ color: subtle, lineHeight: 1.7, fontSize: 13 }}>Choose an available seller-listed size. Measurements may vary by brand; contact the seller for exact measurements.</p>}
             {measurementGuide && <button onClick={() => setEditorialSizeGuideOpen(false)} style={{ width: "100%", minHeight: 50, marginTop: 20, border: 0, borderRadius: 10, background: brand, color: "#fff", fontWeight: 800, fontSize: 14, cursor: "pointer" }}>Done</button>}
             {!measurementGuide && <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 25 }}>{sizeOptions.length > 0 ? sizeOptions.map(size => <button key={size} onClick={() => { handleSizeSelect(size); setEditorialSizeGuideOpen(false); }} style={{ minWidth: 55, minHeight: 50, background: selectedSize.toLowerCase() === size.toLowerCase() ? brand : "transparent", color: selectedSize.toLowerCase() === size.toLowerCase() ? "#fff" : ink, border: `1px solid ${edge}`, borderRadius: 8 }}>{size}</button>) : <span style={{ color: subtle }}>This product has no size options.</span>}</div>}
           </section>
@@ -794,7 +927,7 @@ export default function MobileProductDetails() {
               {availableStock <= 5 ? `Only ${availableStock} left` : "In Stock"}
             </span>
           ) : (
-            <span style={{ fontSize: 12, color: "#ef4444", fontWeight: 600 }}>Out of Stock</span>
+            <span style={{ fontSize: 12, color: "#ef4444", fontWeight: 600 }}>Sold out</span>
           )}
         </div>
       </div>
@@ -954,7 +1087,9 @@ export default function MobileProductDetails() {
             {addToCartMutation.isPending ? (
               <div style={{ width: 18, height: 18, borderRadius: 9, border: "2px solid rgba(255,255,255,0.4)", borderTopColor: "#fff", animation: "spin 0.6s linear infinite" }} />
             ) : availableStock === 0 ? (
-              "Out of Stock"
+              "Sold out"
+            ) : needsSizeChoice ? (
+              "Select a size"
             ) : addedToCart ? (
               <>
                 <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2.5} strokeLinecap="round"><path d="M20 6 9 17l-5-5" /></svg>

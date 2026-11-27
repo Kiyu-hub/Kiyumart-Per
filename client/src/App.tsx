@@ -501,6 +501,13 @@ function RouteScrollManager() {
   return null;
 }
 
+// /stores: phones get the approved storefront-tiles page (MobileAllStores), the
+// same page the mobile "See all stores" links open; desktop keeps BrowseStores.
+function StoresRoute() {
+  const { isMobile } = useMobileDevice();
+  return isMobile ? <MobileAllStores /> : <BrowseStores />;
+}
+
 function HomeRouter() {
   const { isMultiVendor } = usePlatformSettings();
   return isMultiVendor ? <MultiVendorHome /> : <Home />;
@@ -518,7 +525,7 @@ function Router() {
         <Route path="/" component={HomeRouter} />
       <Route path="/search" component={SearchPage} />
       <Route path="/products" component={AllProducts} />
-      <Route path="/stores" component={BrowseStores} />
+      <Route path="/stores" component={StoresRoute} />
       <Route path="/categories" component={MobileAllCategories} />
       <Route path="/mobile/stores" component={MobileAllStores} />
       <Route path="/mobile/vendors" component={GuardedMobileAllVendors} />

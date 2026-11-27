@@ -38,6 +38,11 @@ const SWATCHES: Record<string, string> = {
   emerald: "#0b6e4f", yellow: "#f2c200", orange: "#ef6c00", pink: "#ec5f95", purple: "#7b3fa0", brown: "#7a4e33",
   beige: "#d8c3a5", cream: "#f2ead8", grey: "#8a8a8a", gray: "#8a8a8a", gold: "#c9a227", silver: "#b9bec5",
   maroon: "#6d1b1b", wine: "#6d1b2e", burgundy: "#7a1626", nude: "#d6a77a", tan: "#c19a6b", olive: "#6b6b2a",
+  teal: "#00897b", turquoise: "#1fb5ad", mint: "#9ed9c3", sky: "#7cc4ea", coral: "#f2735a", peach: "#f6b48f",
+  lilac: "#c3a6d8", lavender: "#b9a3dc", violet: "#7f4fc9", khaki: "#b5a26c", mustard: "#d1a21f", charcoal: "#36383b",
+  ivory: "#f6f1e3", champagne: "#e9d9b8", rose: "#d97a8c", magenta: "#c2185b", camel: "#b5884f", denim: "#3b5b8a",
+  indigo: "#2f3e9e", lime: "#9acd32", rust: "#a8451f", copper: "#b06a3b", bronze: "#8c6a3f", sand: "#d9c49c",
+  taupe: "#8b7d70", plum: "#5e2750", mauve: "#b2879a", fuchsia: "#d63384", blush: "#efb8b8", aqua: "#3fc9c9",
 };
 export function swatchFor(name: string): string {
   const words = String(name || "").trim().toLowerCase().split(/\s+/);
@@ -49,13 +54,18 @@ const variants = (p: any): any[] => (Array.isArray(p?.dynamicFields?.variantSumm
 const norm = (s: unknown) => String(s ?? "").trim();
 const lower = (s: unknown) => norm(s).toLowerCase();
 
-export const priceOf = (p: any) => Number(p?.price) || 0;
+/** Price the shopper pays (same rule as checkout): price × (1 − discount%). */
+export const priceOf = (p: any) => {
+  const list = Number(p?.price) || 0;
+  const d = Number(p?.discount) || 0;
+  return d > 0 && d < 100 ? list * (1 - d / 100) : list;
+};
 export function discountOf(p: any): number {
   const price = priceOf(p);
+  const list = Number(p?.price) || 0;
   const cost = Number(p?.costPrice) || 0;
-  const field = Number(p?.discount) || 0;
-  if (field > 0) return Math.round(field);
-  return cost > price && cost > 0 ? Math.round(((cost - price) / cost) * 100) : 0;
+  const was = cost > price ? cost : list > price ? list : 0;
+  return was > 0 ? Math.round(((was - price) / was) * 100) : 0;
 }
 
 /** Sold out only when stock is known to be 0 (missing data is not "sold out"). */

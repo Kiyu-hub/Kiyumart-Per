@@ -138,7 +138,7 @@ export default function MobileAllCategories() {
                 {popular.map((c) => (
                   <button key={c.id} type="button" className="kmc-tap" onClick={() => open(c)} aria-label={`${c.name}, ${itemsLabel(Number(c.productCount) || 0)}`}
                     style={{ position: "relative", aspectRatio: "1 / 1.05", borderRadius: 16, overflow: "hidden", border: "none", padding: 0, background: c.image ? "var(--msh)" : `linear-gradient(150deg, ${TEAL}, #00332e)`, cursor: "pointer", textAlign: "left" }}>
-                    {c.image && <img src={c.image} alt="" loading="lazy" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
+                    {c.image && <img src={c.image} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover" }} />}
                     <span aria-hidden="true" style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg,rgba(0,0,0,0) 45%,rgba(0,0,0,.7))" }} />
                     <span style={{ position: "absolute", left: 12, right: 12, bottom: 10, color: "#fff", display: "flex", flexDirection: "column" }}>
                       <span style={{ fontWeight: 800, fontSize: 15, lineHeight: 1.2 }}>{c.name}</span>
@@ -162,7 +162,7 @@ export default function MobileAllCategories() {
                     <button key={c.id} type="button" className="kmc-tap" onClick={() => open(c)}
                       style={{ border: "none", padding: 0, background: "none", textAlign: "left", cursor: "pointer", color: "var(--mt)", minWidth: 0 }}>
                       <span style={{ display: "block", aspectRatio: "1", borderRadius: 16, overflow: "hidden", background: "var(--msh)" }}>
-                        {c.image && <img src={c.image} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
+                        {c.image && <img src={c.image} alt="" loading="lazy" onError={(e) => { e.currentTarget.style.display = "none"; }} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
                       </span>
                       <span style={{ display: "block", fontSize: 12.5, fontWeight: 600, lineHeight: 1.25, marginTop: 6 }}>{c.name}</span>
                       <span style={{ display: "block", fontSize: 11, marginTop: 1, color: n > 0 ? "var(--mm)" : TEAL, fontWeight: n > 0 ? 400 : 600 }}>{n > 0 ? itemsLabel(n) : "Coming soon"}</span>
