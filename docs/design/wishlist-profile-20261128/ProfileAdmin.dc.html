@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Profile — Admin</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>body{margin:0}button{font-family:inherit}</style></helmet>
+<div style="width: 390px; min-height: 1500px; position: relative; box-sizing: border-box; background: #F2F2F7; color: #0D0D0D; font-family: -apple-system, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif; padding-bottom: 100px">
+  <header style="display: flex; align-items: center; justify-content: space-between; padding: 16px 16px 8px">
+    <div style="font-size: 28px; font-weight: 800; letter-spacing: -0.4px">Profile</div>
+    <button aria-label="Notifications" style="width: 44px; height: 44px; border: 0; border-radius: 22px; background: #FFFFFF; display: grid; place-items: center; cursor: pointer"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0D0D0D" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg></button>
+  </header>
+  <section style="margin: 6px 12px 0; background: #FFFFFF; border-radius: 20px; padding: 16px">
+    <div style="display: flex; align-items: center; gap: 14px">
+      <div style="width: 64px; height: 64px; border-radius: 32px; background: #00796B; color: #FFFFFF; display: grid; place-items: center; font-size: 22px; font-weight: 800; flex-shrink: 0">AD</div>
+      <div style="flex: 1; min-width: 0">
+        <div style="font-size: 18px; font-weight: 800">Akosua Darko</div>
+        <div style="font-size: 13px; color: #5F6368">akosua@example.com</div>
+        <span style="display: inline-block; margin-top: 6px; font-size: 11px; font-weight: 800; color: #00695C; background: #E0F2F1; border-radius: 8px; padding: 3px 8px">Admin</span>
+      </div>
+      <button style="height: 36px; padding: 0 14px; border: 1px solid #E3E3E8; border-radius: 18px; background: #FFFFFF; font-size: 13px; font-weight: 700; color: #0D0D0D; cursor: pointer">Edit</button>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 16px"><button style="border: 0; border-radius: 14px; background: #F2F8F7; padding: 12px 6px; cursor: pointer; color: #0D0D0D"><div style="font-size: 20px; font-weight: 800">4</div><div style="font-size: 12px; color: #5F6368; margin-top: 2px">Applications</div></button><button style="border: 0; border-radius: 14px; background: #F2F8F7; padding: 12px 6px; cursor: pointer; color: #0D0D0D"><div style="font-size: 20px; font-weight: 800">12</div><div style="font-size: 12px; color: #5F6368; margin-top: 2px">Orders today</div></button><button style="border: 0; border-radius: 14px; background: #F2F8F7; padding: 12px 6px; cursor: pointer; color: #0D0D0D"><div style="font-size: 20px; font-weight: 800">2</div><div style="font-size: 12px; color: #5F6368; margin-top: 2px">Open cases</div></button></div>
+  </section>
+  <section style="margin: 12px 12px 0; border-radius: 16px; padding: 12px 14px; background: #FFFFFF; display: flex; gap: 12px; align-items: center">
+    <span style="width: 36px; height: 36px; border-radius: 12px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+    <span style="flex: 1; font-size: 13px; line-height: 1.4; color: #3C4043"><b style="color: #0D0D0D">Limited access</b><br>Your access is set by the Super Admin. You only see the areas you&#x27;re allowed to manage.</span>
+  </section>
+  <div style="padding: 20px 16px 8px; font-size: 12px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; color: #5F6368">Administration</div>
+  <section style="margin: 0 12px; background: #FFFFFF; border-radius: 16px; overflow: hidden">
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3h8v10H3zM13 3h8v6h-8zM13 11h8v10h-8zM3 15h8v6H3z"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">Admin dashboard</span></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 7h12l-1 13H7L6 7zM9 7a3 3 0 0 1 6 0"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">Orders</span><span style="display: block; font-size: 12px; color: #5F6368">Allowed</span></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">Products</span><span style="display: block; font-size: 12px; color: #5F6368">Allowed</span></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l1.5-5h15L21 9M4 9v11h16V9M3 9h18M9 20v-6h6v6"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">Sellers &amp; stores</span><span style="display: block; font-size: 12px; color: #5F6368">Allowed</span></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h11v10H3zM14 9h4l3 3v4h-7M7 19a2 2 0 1 0 0-.01M17 19a2 2 0 1 0 0-.01"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">Riders</span><span style="display: block; font-size: 12px; color: #5F6368">Allowed</span></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8a2 2 0 0 0 0 4v4h18v-4a2 2 0 0 1 0-4V4H3zM13 4v12"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">Applications</span></span>
+          <span style="min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: #00796B; color: #FFFFFF; font-size: 11px; font-weight: 800; display: grid; place-items: center">4</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">Delivery zones &amp; pickup stations</span></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">Analytics</span></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+  </section>
+  <div style="padding: 20px 16px 8px; font-size: 12px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; color: #5F6368">Messages</div>
+  <section style="margin: 0 12px; background: #FFFFFF; border-radius: 16px; overflow: hidden">
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">Messages</span></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21a6 6 0 0 0-12 0M11 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8M21 21a5 5 0 0 0-4-4.9M16 5.2a4 4 0 0 1 0 7.6"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">Staff chat</span></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 22V4M4 4h13l-2 4 2 4H4"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">Reported cases</span></span>
+          <span style="min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: #00796B; color: #FFFFFF; font-size: 11px; font-weight: 800; display: grid; place-items: center">2</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+  </section>
+  <div style="padding: 20px 16px 8px; font-size: 12px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; color: #5F6368">Account</div>
+  <section style="margin: 0 12px; background: #FFFFFF; border-radius: 16px; overflow: hidden">
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21a8 8 0 0 0-16 0M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">Edit profile</span></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">Change password</span></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+  </section>
+  <div style="padding: 20px 16px 8px; font-size: 12px; font-weight: 800; letter-spacing: 0.6px; text-transform: uppercase; color: #5F6368">Support</div>
+  <section style="margin: 0 12px; background: #FFFFFF; border-radius: 16px; overflow: hidden">
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">Help &amp; support</span></span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+        <button style="width: 100%; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F3; background: #FFFFFF; text-align: left; cursor: pointer; color: #0D0D0D">
+          <span style="width: 32px; height: 32px; border-radius: 10px; background: #E0F2F1; display: grid; place-items: center; flex-shrink: 0"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01"/></svg></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 15px; font-weight: 600">App version</span></span>
+          <span style="font-size: 13px; color: #5F6368">1.0.0</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9AA0A6" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+        </button>
+  </section>
+  <div style="margin: 20px 12px 0">
+    <button style="width: 100%; height: 50px; border-radius: 16px; background: #FFFFFF; border: 0; color: #D93025; font-size: 15px; font-weight: 700; cursor: pointer">Sign out</button>
+  </div>
+  <nav style="position: absolute; left: 0; right: 0; bottom: 0; height: 76px; background: #FFFFFF; border-top: 1px solid #ECECEF; display: flex; align-items: flex-start; justify-content: space-around; padding-top: 10px; font-size: 11px; color: #80868B"><span>Home</span><span>Cart</span><span style="font-weight: 700; color: #0D0D0D">Admin</span><span>Wishlist</span><span style="font-weight: 700; color: #00796B">Profile</span></nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1500}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

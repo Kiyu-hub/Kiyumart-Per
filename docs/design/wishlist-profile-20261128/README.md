@@ -9,11 +9,16 @@ Canvas: https://claude.ai/artifact/Emx5XWph9eAJdJFyvVZzfD (its own canvas; the c
 - No "price dropped" label or filter (owner: nothing that isn't a real feature). Filters: All / In stock.
 - Empty: heart card + Start shopping, then "Popular right now" (with % OFF badges and save hearts).
 
-## Profile — three plain (monochrome) options, awaiting the owner's pick
-Built from the desktop profile (Profile.tsx): name, email, "{role} Account", Settings + Logout,
-Profile · Orders · Settings (Personal Information form; Order History "Order #… / View Details";
-Change Password, Email Notifications).
-- A: plain list.
-- B: desktop tabs (interactive), closest to desktop.
-- C: plain summary (Orders/Wishlist counts, recent orders, account rows).
-Desktop pages unchanged.
+## Profile — by role, in the current KiyuMart design (awaiting the owner's approval)
+Teal #00796B / #009688 accents, #F2F2F7 background, white rounded cards (same look as the cart and wishlist).
+Menus use only pages that exist today (MobileProfile.tsx + DashboardSidebar.tsx); bottom bar matches
+MobileBottomNavA (Home · Cart · role button · Wishlist · Profile).
+- Buyer (normal user): orders / active / wishlist; Shopping, Account, Support.
+- Seller: products / active orders / reviews; Store (dashboard, products, orders, analytics, reviews,
+  promotions, earnings & payouts, store settings); centre button "Dashboard".
+- Rider: Rider hub (dashboard, deliveries, earnings, messages, settings); centre "Tasks".
+- Pickup agent: Agent hub (orders, earnings, shift); centre "Pickup".
+- Admin: "Limited access — set by the Super Admin" note; only permitted admin areas; centre "Admin".
+- Super Admin: "Full access" note; Platform control (admin permissions, users, platform settings,
+  payout approvals, platform earnings), Operations, Monitoring; centre "Super Admin".
+Example names and numbers only. Desktop unchanged.
