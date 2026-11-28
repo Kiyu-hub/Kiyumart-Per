@@ -1,7 +1,7 @@
 # Wishlist & Profile — simple redesign (phone), proposal
 
 Status: proposal, awaiting owner approval. No app code changed. Desktop unchanged.
-Canvas: https://claude.ai/artifact/8FH5HGmGChzqdGMLAyJgRe (second row)
+Canvas: https://claude.ai/artifact/Emx5XWph9eAJdJFyvVZzfD (its own canvas; the cart canvas is unchanged)
 
 Wishlist: same look as the approved cart (A); shop name on each card; price uses the checkout rule
 (fixes the current full-price bug); Add to cart; "Price dropped" / "Sold out" labels; filters
