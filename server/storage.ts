@@ -703,6 +703,7 @@ export interface IStorage {
   getCoupon(id: string): Promise<Coupon | undefined>;
   getCouponByCode(code: string): Promise<Coupon | undefined>;
   getCouponsBySeller(sellerId: string): Promise<Coupon[]>;
+  getAllCoupons(): Promise<Coupon[]>;
   updateCoupon(id: string, data: Partial<Coupon>): Promise<Coupon | undefined>;
   deleteCoupon(id: string): Promise<boolean>;
   validateCoupon(code: string, sellerId: string, orderTotal: number): Promise<{ valid: boolean; message?: string; coupon?: Coupon }>;
@@ -4833,6 +4834,11 @@ export class DbStorage implements IStorage {
 
   async getCouponsBySeller(sellerId: string): Promise<Coupon[]> {
     return db.select().from(coupons).where(eq(coupons.sellerId, sellerId)).orderBy(desc(coupons.createdAt));
+  }
+
+  /** Super Admin oversight: every coupon on the platform, newest first. */
+  async getAllCoupons(): Promise<Coupon[]> {
+    return db.select().from(coupons).orderBy(desc(coupons.createdAt));
   }
 
   async updateCoupon(id: string, data: Partial<Coupon>): Promise<Coupon | undefined> {

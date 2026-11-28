@@ -114,7 +114,7 @@ import { hasSupportFirstResponse, isSupportStaffRole, resolveSupportDisplayName,
 import { canonicalizeOrderStatus } from "./services/orderStateMachine";
 import { getRiderRiskScore, listRiderRiskScores, recordRiderRiskSignal } from "./services/riderRiskEngine";
 import { logSystemActivity } from "./observability";
-import { toPublicStore, toPublicStores } from "./publicStore";
+import { toPublicStore, toPublicStores, toAdminStoreView, resolveAdminStoreViewer } from "./publicStore";
 import { encryptField, decryptField, isEncrypted } from "./utils/sensitiveEncrypt";
 import {
   recordReferralSignup,
@@ -6973,9 +6973,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/coupons", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_promotions"), requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
+  app.get("/api/coupons", requireAuth, requireRole("admin", "seller", "super_admin"), requirePermissionIfAdmin("manage_promotions"), requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
     try {
-      const coupons = await storage.getCouponsBySeller(req.user!.id);
+      // Super Admin oversees every coupon; admins and sellers see their own.
+      const coupons = req.user!.role === "super_admin"
+        ? await storage.getAllCoupons()
+        : await storage.getCouponsBySeller(req.user!.id);
       res.json(coupons);
     } catch (error: any) {
       sendApiError(res, error);
@@ -7008,14 +7011,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/coupons/:id", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_promotions"), async (req: AuthRequest, res) => {
+  app.get("/api/coupons/:id", requireAuth, requireRole("admin", "seller", "super_admin"), requirePermissionIfAdmin("manage_promotions"), async (req: AuthRequest, res) => {
     try {
       const coupon = await storage.getCoupon(req.params.id);
       if (!coupon) {
         return res.status(404).json({ error: "Coupon not found" });
       }
       
-      if (coupon.sellerId !== req.user!.id) {
+      if (req.user!.role !== "super_admin" && coupon.sellerId !== req.user!.id) {
         return res.status(403).json({ error: "Unauthorized" });
       }
 
@@ -7025,14 +7028,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/coupons/:id", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_promotions"), requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
+  app.patch("/api/coupons/:id", requireAuth, requireRole("admin", "seller", "super_admin"), requirePermissionIfAdmin("manage_promotions"), requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
     try {
       const coupon = await storage.getCoupon(req.params.id);
       if (!coupon) {
         return res.status(404).json({ error: "Coupon not found" });
       }
 
-      if (coupon.sellerId !== req.user!.id) {
+      if (req.user!.role !== "super_admin" && coupon.sellerId !== req.user!.id) {
         return res.status(403).json({ error: "Unauthorized" });
       }
 
@@ -7049,14 +7052,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/coupons/:id", requireAuth, requireRole("admin", "seller"), requirePermissionIfAdmin("manage_promotions"), requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
+  app.delete("/api/coupons/:id", requireAuth, requireRole("admin", "seller", "super_admin"), requirePermissionIfAdmin("manage_promotions"), requireRoleFeatureIfRole(["seller"], "promotions.manage"), async (req: AuthRequest, res) => {
     try {
       const coupon = await storage.getCoupon(req.params.id);
       if (!coupon) {
         return res.status(404).json({ error: "Coupon not found" });
       }
 
-      if (coupon.sellerId !== req.user!.id) {
+      if (req.user!.role !== "super_admin" && coupon.sellerId !== req.user!.id) {
         return res.status(403).json({ error: "Unauthorized" });
       }
 
@@ -7994,7 +7997,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         return res.json({
           seller: sellerWithoutPassword,
-          store,
+          store: toAdminStoreView(store, await resolveAdminStoreViewer((req as AuthRequest).user)), // KM-006f
         });
       } catch (error: any) {
         console.error("Error building seller dashboard bootstrap:", error);
@@ -14327,7 +14330,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         return res.json({
           seller: sellerWithoutPassword,
-          store,
+          store: toAdminStoreView(store, await resolveAdminStoreViewer((req as AuthRequest).user)), // KM-006f
           summary: {
             totalSales: Number(summaryRow.totalSales ?? 0),
             totalRevenue: Number(summaryRow.totalRevenue ?? 0),
@@ -14976,7 +14979,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ].filter((item) => item.at).sort((a, b) => new Date(String(b.at)).getTime() - new Date(String(a.at)).getTime()).slice(0, 12);
 
       res.json({
-        store,
+        store: toAdminStoreView(store, await resolveAdminStoreViewer((req as AuthRequest).user)), // KM-006f
         seller: seller ? (({ password, ...rest }) => rest)(seller as any) : null,
         summary: {
           totalOrders: storeOrders.length,
@@ -24308,7 +24311,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/admin/verification/applications", requireAuth, requireRole("admin", "super_admin"), async (req: AuthRequest, res) => {
     try {
       const applications = await storage.getVerificationApplications();
-      res.json(applications);
+      // KM-006f: ID documents and payout details only for viewers allowed to see them.
+      const viewer = await resolveAdminStoreViewer(req.user);
+      res.json(Array.isArray(applications) ? applications.map((a: any) => toAdminStoreView(a, viewer)) : applications);
     } catch (error: any) {
       sendApiError(res, error);
     }

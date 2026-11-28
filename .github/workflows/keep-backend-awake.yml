@@ -7,9 +7,11 @@ name: Keep backend awake
 # Notes:
 # - GitHub's scheduled runs can be delayed under load, so we ping a couple of
 #   times per run to smooth that out.
-# - GitHub auto-disables cron workflows after 60 days with no repo activity;
-#   any push re-enables it. For guaranteed uptime, an external pinger
-#   (cron-job.org / UptimeRobot hitting the same URL) is more reliable.
+# - GitHub auto-disables cron workflows after 60 days with no repo activity and
+#   they stay disabled until re-enabled in the Actions tab (a push does NOT
+#   re-enable them). The old keep-alive.yml was disabled that way in Sept 2026;
+#   this file replaces it as a fresh, active workflow. For guaranteed uptime, an
+#   external pinger (cron-job.org / UptimeRobot hitting the same URL) is more reliable.
 
 on:
   schedule:

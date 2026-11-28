@@ -39,6 +39,16 @@ every change from a session is pushed to GitHub.
 Sign-in, cart, checkout and orders on the live site (needs an account and a
 non-production checkout environment).
 
+## 28 Nov fixes
+
+| Fix | Detail |
+|---|---|
+| Keep backend awake | `keep-alive.yml` was auto-disabled by GitHub; replaced by `keep-backend-awake.yml` (new, active workflow, pings every 14 min). |
+| Super Admin coupons | Super Admin can list, view, edit and delete every coupon; sellers still only their own. Test: `coupons-super-admin.test.ts`. |
+| Admin data access | Ordinary admins never receive sellers' ID documents; payout details only with the view-payouts permission. Super Admin unchanged. Test: `admin-store-data-access.test.ts`. |
+| Suspended accounts | Blocked within 30 s on every logged-in route (suspended sellers/riders keep the limited access the role rules allow). Test: `auth-suspended-account.test.ts`. |
+| Automatic tests | `ci.yml`: typecheck + all server tests + production build (all green locally: 22/22). Paystack unit tests fixed (fake keys in the current format). `ci-integration.yml` renamed and runs only the optional Paystack integration test. `playwright.yml` unchanged — several browser specs still describe the retired single-store mode and need rewriting. |
+
 ## Open decisions for the owner
 
 1. Merge `fix/unify-mobile-desktop-20261127` to `main` (= production deploy).
@@ -46,7 +56,8 @@ non-production checkout environment).
 3. Staging backend + Paystack test mode for safe checkout testing.
 4. Desktop design additions not made (owner said no desktop UI changes): studio-photo switch and Sort & filter on desktop.
 5. Live catalogue currently holds demo products only.
-6. Admin least-privilege for payout/identity data; Super Admin access to coupon routes; session invalidation after password reset.
+6. Making a password change log the user out on all devices (needs a database column — after launch).
+7. Rewrite the single-store browser tests (playwright) for the multi-vendor marketplace.
 
 ## Local preview tools
 

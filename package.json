@@ -23,7 +23,9 @@
     "test:finance": "scripts\\run-tsx-safe.cmd scripts/verify-platform-earnings.ts",
     "seed:dev": "scripts\\run-tsx-safe.cmd scripts/seed-dev-data.ts",
     "wipe:dev": "scripts\\run-tsx-safe.cmd scripts/wipe-dev-data.ts",
-    "lint:hooks": "eslint --no-eslintrc -c .eslintrc.hooks.json --ext .ts,.tsx --no-inline-config client/src"
+    "lint:hooks": "eslint --no-eslintrc -c .eslintrc.hooks.json --ext .ts,.tsx --no-inline-config client/src",
+    "test:server": "node scripts/run-tsx-test-suite-safe.mjs",
+    "typecheck:node": "node scripts/typecheck-safe.mjs"
   },
   "dependencies": {
     "@google/model-viewer": "^4.2.0",

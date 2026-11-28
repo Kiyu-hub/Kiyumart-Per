@@ -19,7 +19,7 @@ async function run() {
   const calls: string[] = [];
 
   // Minimal platform settings with single-store enabled
-  storageModule.storage.getPlatformSettings = async () => ({ isMultiVendor: false, primaryStoreId: 'store1', paystackSecretKey: 'sk_test', defaultCommissionRate: '10' } as any);
+  storageModule.storage.getPlatformSettings = async () => ({ isMultiVendor: false, primaryStoreId: 'store1', paystackSecretKey: 'sk_test_fakekeyforunittests000000', paystackPublicKey: 'pk_test_fakekeyforunittests000000', defaultCommissionRate: '10' } as any);
 
   storageModule.storage.getStore = async (id: string) => ({ id: 'store1', primarySellerId: 'seller1', name: 'Primary Store', paystackSubaccountId: 'sub_123', isPayoutVerified: true } as any);
 

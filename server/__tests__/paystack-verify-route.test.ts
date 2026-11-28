@@ -11,7 +11,7 @@ async function run() {
   const calls: string[] = [];
 
   // Platform settings
-  storageModule.storage.getPlatformSettings = async () => ({ paystackSecretKey: 'sk_test', defaultCommissionRate: '10', isMultiVendor: false } as any);
+  storageModule.storage.getPlatformSettings = async () => ({ paystackSecretKey: 'sk_test_fakekeyforunittests000000', paystackPublicKey: 'pk_test_fakekeyforunittests000000', defaultCommissionRate: '10', isMultiVendor: false } as any);
 
   // Orders / stores
   const order = { id: 'order1', buyerId: 'u1', orderNumber: 'ORD-1', total: '105.00', processingFee: '5.00', currency: 'GHS', storeId: 'store1', sellerId: 'seller1', paymentReference: 'mock-ref' } as any;

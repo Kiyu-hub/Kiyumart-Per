@@ -56,6 +56,29 @@ export function verifyToken(token: string): any {
   }
 }
 
+// Suspended / deleted accounts must lose access straight away, not when their
+// 7-day token expires. Cached briefly so every request is not a database read.
+const ACCOUNT_STATUS_TTL_MS = 30_000;
+const accountStatusCache = new Map<string, { exists: boolean; isActive: boolean; role: string; at: number }>();
+
+export function invalidateAccountStatus(userId: string) {
+  accountStatusCache.delete(String(userId));
+}
+
+async function getAccountStatus(userId: string) {
+  const cached = accountStatusCache.get(userId);
+  if (cached && Date.now() - cached.at < ACCOUNT_STATUS_TTL_MS) return cached;
+  const user = await storage.getUser(userId);
+  const status = {
+    exists: !!user,
+    isActive: (user as any)?.isActive !== false,
+    role: normalizeRoleValue((user as any)?.role),
+    at: Date.now(),
+  };
+  accountStatusCache.set(userId, status);
+  return status;
+}
+
 export function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
   // Try to get token from cookie first, then fall back to Authorization header
   let token = req.cookies?.token;
@@ -81,7 +104,30 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
     ...decoded,
     role: normalizeRoleValue(decoded?.role),
   };
-  next();
+
+  const userId = String(decoded?.id || "");
+  if (!userId) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+  getAccountStatus(userId)
+    .then((status) => {
+      if (!status.exists) {
+        return res.status(401).json({ error: "Account not found" });
+      }
+      // Suspended sellers and riders keep the limited access requireRoleAllowInactive
+      // grants them; everyone else is blocked immediately.
+      const operational = status.role === "seller" || status.role === "rider";
+      if (!status.isActive && !operational) {
+        return res.status(403).json({ error: "Account suspended", code: "ACCOUNT_SUSPENDED" });
+      }
+      next();
+    })
+    .catch((error) => {
+      // Database unavailable: keep the site usable for valid tokens (role checks
+      // still re-verify against the database where they apply).
+      console.warn("[auth] account status check skipped:", error?.message || error);
+      next();
+    });
 }
 
 export function requireRole(...roles: string[]) {
