@@ -12,6 +12,7 @@ import { Heart } from "lucide-react";
 import { useMobileDevice } from "@/hooks/useMobileDevice";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { MobileWishlist } from "@/pages/mobile/MobileWishlist";
 
 interface WishlistItem {
   id: string;
@@ -204,9 +205,8 @@ export default function Wishlist() {
 
   const removeFromWishlistMutation = useMutation({
     mutationFn: async (productId: string) => {
-      const item = wishlist.find(w => w.productId === productId);
-      if (!item) return;
-      await apiRequest('DELETE', `/api/wishlist/${item.id}`);
+      // The server removes by product id (DELETE /api/wishlist/:productId).
+      await apiRequest('DELETE', `/api/wishlist/${encodeURIComponent(productId)}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/wishlist'] });
@@ -218,7 +218,7 @@ export default function Wishlist() {
 
   if (isMobile) {
     return (
-      <MobileWishlistView
+      <MobileWishlist
         wishlistProducts={wishlistProducts}
         isLoading={isLoading}
         isAuthenticated={isAuthenticated}

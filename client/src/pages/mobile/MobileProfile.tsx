@@ -7,6 +7,7 @@ import { useHaptic } from "@/hooks/useHaptic";
 import { useToast } from "@/hooks/use-toast";
 import UserAvatar from "@/components/UserAvatar";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { User as UserIcon, Lock, Settings as SettingsIcon, ShoppingBag, Heart, Bell, Gift, Lightbulb, Headphones, Download, LogOut, Camera, ChevronRight, type LucideIcon } from "lucide-react";
 
 const F = '-apple-system,"SF Pro Text","SF Pro",system-ui,sans-serif';
 
@@ -128,6 +129,35 @@ function Section({ title, children, isDark }: { title: string; children: React.R
         {children}
       </div>
     </div>
+  );
+}
+
+// ── Plain list (approved 28 Nov 2026): desktop lucide icons, no coloured
+//    backgrounds, no cards — one profile for every role. Role tools live behind
+//    the bottom bar's middle button, as on desktop.
+function PlainRow({ icon: IconC, label, right, onClick, isDark, last }: {
+  icon: LucideIcon; label: string; right?: string | number; onClick?: () => void; isDark: boolean; last?: boolean;
+}) {
+  const ink = isDark ? '#FFFFFF' : '#1A1A1A';
+  const line = isDark ? 'rgba(255,255,255,0.08)' : '#EFEFEF';
+  return (
+    <button onClick={onClick} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 16, height: 56, padding: 0, border: 0, background: 'transparent', textAlign: 'left', cursor: 'pointer', color: ink, fontFamily: F, WebkitTapHighlightColor: 'transparent' }}>
+      <IconC size={22} strokeWidth={1.75} color={ink} aria-hidden="true" />
+      <span style={{ flex: 1, height: 56, display: 'flex', alignItems: 'center', gap: 8, borderBottom: last ? 'none' : `1px solid ${line}` }}>
+        <span style={{ flex: 1, fontSize: 16 }}>{label}</span>
+        {right !== undefined && right !== '' && right !== 0 && <span style={{ fontSize: 14, color: isDark ? 'rgba(235,235,245,0.55)' : '#8A8A8A' }}>{right}</span>}
+        <ChevronRight size={18} strokeWidth={2} color={isDark ? 'rgba(255,255,255,0.3)' : '#B5B5B5'} aria-hidden="true" />
+      </span>
+    </button>
+  );
+}
+
+function PlainGroup({ title, isDark, children }: { title: string; isDark: boolean; children: React.ReactNode }) {
+  return (
+    <>
+      <p style={{ padding: '28px 24px 4px', margin: 0, fontSize: 13, fontWeight: 600, color: isDark ? 'rgba(235,235,245,0.55)' : '#8A8A8A', fontFamily: F }}>{title}</p>
+      <div style={{ padding: '0 24px' }}>{children}</div>
+    </>
   );
 }
 
@@ -273,13 +303,23 @@ export function MobileProfile() {
   const ROLE_LABEL: Record<string, string> = { seller: 'Seller', rider: 'Rider', admin: 'Admin', super_admin: 'Super Admin', pickup_agent: 'Pickup Agent', agent: 'Support Agent' };
 
   if (!isAuthenticated) {
+    const ink = isDark ? '#FFFFFF' : '#1A1A1A';
     return (
-      <div style={{ minHeight: '100dvh', background: bg, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, fontFamily: F }}>
-        <Icon d={IC.user} size={48} color={muted} sw={1.2} />
-        <p style={{ fontSize: 17, fontWeight: 600, color: txt }}>Not signed in</p>
-        <button onClick={() => navigate('/auth')} style={{ marginTop: 8, background: accent, color: '#fff', border: 'none', borderRadius: 12, padding: '12px 28px', fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>
-          Sign In
-        </button>
+      <div data-testid="profile-guest" style={{ minHeight: '100dvh', background: isDark ? '#111111' : '#FFFFFF', color: ink, fontFamily: F, paddingBottom: 'max(96px, calc(80px + env(safe-area-inset-bottom)))' }}>
+        <div style={{ padding: '20px 24px 0', paddingTop: 'max(20px, env(safe-area-inset-top, 20px))', fontSize: 17, fontWeight: 700, textAlign: 'center' }}>Profile</div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '32px 24px 8px', textAlign: 'center' }}>
+          <div style={{ width: 92, height: 92, borderRadius: 46, background: isDark ? '#2C2C2E' : '#F2F2F2', display: 'grid', placeItems: 'center' }}>
+            <UserIcon size={40} strokeWidth={1.5} color={isDark ? 'rgba(235,235,245,0.55)' : '#8A8A8A'} aria-hidden="true" />
+          </div>
+          <div style={{ marginTop: 16, fontSize: 22, fontWeight: 700 }}>Welcome to KiyuMart</div>
+          <div style={{ marginTop: 6, fontSize: 14, color: isDark ? 'rgba(235,235,245,0.6)' : '#6B6B6B', lineHeight: 1.5 }}>Sign in to see your orders, wishlist and messages.</div>
+          <button onClick={() => navigate('/auth')} style={{ marginTop: 20, width: '100%', height: 50, borderRadius: 25, border: 0, background: '#00796B', color: '#FFFFFF', fontSize: 16, fontWeight: 700, cursor: 'pointer', fontFamily: F }}>Sign in</button>
+          <button onClick={() => navigate('/auth?mode=signup')} style={{ marginTop: 10, width: '100%', height: 50, borderRadius: 25, border: '1px solid #00796B', background: 'transparent', color: isDark ? '#4DB6AC' : '#00796B', fontSize: 16, fontWeight: 600, cursor: 'pointer', fontFamily: F }}>Create account</button>
+        </div>
+        <PlainGroup title="Help" isDark={isDark}>
+          <PlainRow icon={Headphones} label="Support" onClick={() => navigate('/support')} isDark={isDark} last />
+        </PlainGroup>
+        <p style={{ padding: '24px 24px 0', margin: 0, fontSize: 12, color: isDark ? 'rgba(235,235,245,0.4)' : '#A3A3A3', textAlign: 'center' }}>KiyuMart · Version 1.0.0</p>
       </div>
     );
   }
@@ -352,212 +392,60 @@ export function MobileProfile() {
     );
   }
 
-  // ── Main profile screen ───────────────────────────────────────────────────────
+  // ── Main profile screen (same for every role) ─────────────────────────────────
+  const ink = isDark ? '#FFFFFF' : '#1A1A1A';
+  const soft = isDark ? 'rgba(235,235,245,0.6)' : '#6B6B6B';
+  const line = isDark ? 'rgba(255,255,255,0.08)' : '#EFEFEF';
   return (
-    <div style={{ minHeight: '100dvh', background: bg, fontFamily: F, paddingBottom: 'max(88px, calc(72px + env(safe-area-inset-bottom)))' }}>
+    <div data-testid="profile-page" style={{ minHeight: '100dvh', background: isDark ? '#111111' : '#FFFFFF', color: ink, fontFamily: F, paddingBottom: 'max(96px, calc(80px + env(safe-area-inset-bottom)))' }}>
+      <div style={{ padding: '20px 24px 0', paddingTop: 'max(20px, env(safe-area-inset-top, 20px))', fontSize: 17, fontWeight: 700, textAlign: 'center' }}>Profile</div>
 
-      {/* Header */}
-      <div style={{ position: 'sticky', top: 0, zIndex: 20, background: hdrBg, borderBottom: `1px solid ${bdr}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 12px', paddingTop: 'max(14px, env(safe-area-inset-top, 14px))' }}>
-        <span style={{ fontSize: 17, fontWeight: 700, color: txt }}>Profile</span>
-        <button onClick={() => navigate('/notifications')} style={{ position: 'relative', width: 34, height: 34, borderRadius: 17, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', WebkitTapHighlightColor: 'transparent' }}>
-          <Icon d={IC.bell} size={20} color={isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)'} sw={1.8} />
-          {notifCount > 0 && (
-            <span style={{ position: 'absolute', top: 0, right: 0, width: 16, height: 16, borderRadius: 8, background: '#FF453A', fontSize: 9, fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {notifCount > 9 ? '9+' : notifCount}
-            </span>
-          )}
-        </button>
-      </div>
-
-      {/* Profile card */}
-      <div style={{ margin: '12px 16px 0', borderRadius: 12, background: card, border: `1px solid ${bdr}`, overflow: 'hidden' }}>
-        <div style={{ padding: '20px 16px 16px', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-          <div style={{ width: 60, height: 60, borderRadius: 30, overflow: 'hidden', flexShrink: 0, border: `1.5px solid ${bdr}`, background: card }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px 24px 8px', textAlign: 'center' }}>
+        <div style={{ position: 'relative' }}>
+          <div style={{ width: 92, height: 92, borderRadius: 46, overflow: 'hidden', background: isDark ? '#2C2C2E' : '#F2F2F2' }}>
             {avatar ? (
-              <img
-                src={avatar}
-                alt={name}
-                style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-              />
+              <img src={avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
             ) : (
               <UserAvatar name={name} profileImage={avatar} size="lg" className="h-full w-full" />
             )}
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
-              <div>
-                <p style={{ fontSize: 17, fontWeight: 700, color: txt, lineHeight: 1.2 }}>{name}</p>
-                <p style={{ fontSize: 13, color: muted, marginTop: 2 }}>{email}</p>
-                {phone && <p style={{ fontSize: 13, color: muted }}>{phone}</p>}
-                {isSeller && store?.name && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
-                    <Icon d={IC.store} size={12} color={muted} sw={1.8} />
-                    <span style={{ fontSize: 12, color: muted }}>{store.name}</span>
-                  </div>
-                )}
-                {!isBuyer && ROLE_LABEL[role] && (
-                  <span style={{ display: 'inline-block', marginTop: 4, fontSize: 11, fontWeight: 600, color: accent, border: `1px solid ${accent}40`, borderRadius: 6, padding: '2px 7px' }}>
-                    {ROLE_LABEL[role]}
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={openEdit}
-                style={{ width: 32, height: 32, borderRadius: 8, background: 'none', border: `1px solid ${bdr}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, WebkitTapHighlightColor: 'transparent' }}
-              >
-                <Icon d={IC.edit} size={15} color={muted} sw={1.8} />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Buyer quick stats */}
-        {isBuyer && (
-          <div style={{ display: 'flex', borderTop: `1px solid ${bdr}` }}>
-            {[
-              { val: (orders as any[]).length, lbl: 'Orders' },
-              { val: (wishlist as any[]).length, lbl: 'Wishlist' },
-              { val: activeOrders, lbl: 'Active' },
-            ].map((s, i, arr) => (
-              <div key={s.lbl} style={{ flex: 1, textAlign: 'center', padding: '12px 4px', borderRight: i < arr.length - 1 ? `1px solid ${bdr}` : undefined }}>
-                <p style={{ fontSize: 18, fontWeight: 800, color: txt, lineHeight: 1 }}>{s.val}</p>
-                <p style={{ fontSize: 11, color: muted, marginTop: 3 }}>{s.lbl}</p>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Referral link */}
-      {isBuyer && referralUrl && (
-        <div style={{ margin: '10px 16px 0' }}>
-          <button onClick={copyReferral} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, background: card, borderRadius: 12, padding: '12px 14px', border: `1px solid ${bdr}`, cursor: 'pointer', WebkitTapHighlightColor: 'transparent', textAlign: 'left', fontFamily: F }}>
-            <Icon d={IC.gift} size={18} color={muted} sw={1.8} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 13, fontWeight: 600, color: txt, marginBottom: 1 }}>Referral Link</p>
-              <p style={{ fontSize: 12, color: muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }}>{referralUrl}</p>
-            </div>
-            <Icon d={IC.copy} size={16} color={muted} sw={1.8} />
+          <button aria-label="Change profile photo" onClick={openEdit} style={{ position: 'absolute', right: 0, bottom: 0, width: 32, height: 32, borderRadius: 16, border: `1px solid ${isDark ? 'rgba(255,255,255,0.15)' : '#E2E2E2'}`, background: isDark ? '#1C1C1E' : '#FFFFFF', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
+            <Camera size={16} strokeWidth={1.9} color={ink} aria-hidden="true" />
           </button>
         </div>
-      )}
-
-      {/* Buyer sections */}
-      {isBuyer && (
-        <>
-          <Section title="Shopping" isDark={isDark}>
-            <Row icon="bag" label="My Orders" sub={activeOrders > 0 ? `${activeOrders} active` : undefined} badge={activeOrders > 0 ? activeOrders : undefined} isDark={isDark} onClick={() => navigate('/orders')} />
-            <Row icon="heart" label="Wishlist" sub={(wishlist as any[]).length > 0 ? `${(wishlist as any[]).length} saved` : undefined} isDark={isDark} onClick={() => navigate('/wishlist')} />
-            {showBecomeSeller && (
-              <Row icon="store" label="Become a Seller" sub="Open your own store" isDark={isDark} onClick={() => navigate('/become-seller')} />
-            )}
-            {showBecomeRider && (
-              <Row icon="truck" label="Become a Rider" sub="Deliver and earn" isDark={isDark} onClick={() => navigate('/become-rider')} />
-            )}
-          </Section>
-          <Section title="Account" isDark={isDark}>
-            <Row icon="user" label="Edit Profile" isDark={isDark} onClick={openEdit} />
-            <Row icon="star" label="Referral Programme" sub="Earn rewards for inviting friends" isDark={isDark} onClick={() => navigate('/referral')} />
-            <Row icon="settings" label="Settings" isDark={isDark} onClick={() => navigate('/settings')} />
-            <Row icon="lock" label="Change Password" isDark={isDark} onClick={() => navigate('/change-password')} />
-            <Row icon="download" label="Download My Data" isDark={isDark} onClick={downloadMyData} />
-          </Section>
-        </>
-      )}
-
-      {/* Seller sections */}
-      {isSeller && (
-        <>
-          <Section title="Store" isDark={isDark}>
-            <Row icon="layout" label="Dashboard" isDark={isDark} onClick={() => navigate('/seller')} />
-            <Row icon="package" label="Products" isDark={isDark} onClick={() => navigate('/seller/products')} />
-            <Row icon="bag" label="Orders" badge={activeOrders > 0 ? activeOrders : undefined} isDark={isDark} onClick={() => navigate('/seller/orders')} />
-            <Row icon="chart" label="Analytics" isDark={isDark} onClick={() => navigate('/seller/analytics')} />
-            <Row icon="star" label="Reviews" isDark={isDark} onClick={() => navigate('/seller/reviews')} />
-            <Row icon="tag" label="Promotions" isDark={isDark} onClick={() => navigate('/seller/promotions')} />
-            <Row icon="wallet" label="Earnings & Payouts" isDark={isDark} onClick={() => navigate('/seller/payouts')} />
-            <Row icon="settings" label="Store Settings" isDark={isDark} onClick={() => navigate('/seller/settings')} />
-          </Section>
-          <Section title="Account" isDark={isDark}>
-            <Row icon="user" label="Edit Profile" isDark={isDark} onClick={openEdit} />
-            <Row icon="lock" label="Change Password" isDark={isDark} onClick={() => navigate('/change-password')} />
-            <Row icon="message" label="Support Messages" isDark={isDark} onClick={() => navigate('/seller/messages')} />
-            <Row icon="download" label="Download My Data" isDark={isDark} onClick={downloadMyData} />
-          </Section>
-        </>
-      )}
-
-      {/* Rider sections */}
-      {isRider && (
-        <>
-          <Section title="Rider Hub" isDark={isDark}>
-            <Row icon="layout" label="Dashboard" isDark={isDark} onClick={() => navigate('/rider')} />
-            <Row icon="truck" label="Deliveries" isDark={isDark} onClick={() => navigate('/rider/deliveries')} />
-            <Row icon="chart" label="Earnings" isDark={isDark} onClick={() => navigate('/rider/earnings')} />
-            <Row icon="message" label="Messages" isDark={isDark} onClick={() => navigate('/rider/messages')} />
-            <Row icon="settings" label="Settings" isDark={isDark} onClick={() => navigate('/rider/settings')} />
-          </Section>
-          <Section title="Account" isDark={isDark}>
-            <Row icon="user" label="Edit Profile" isDark={isDark} onClick={openEdit} />
-            <Row icon="lock" label="Change Password" isDark={isDark} onClick={() => navigate('/change-password')} />
-            <Row icon="download" label="Download My Data" isDark={isDark} onClick={downloadMyData} />
-          </Section>
-        </>
-      )}
-
-      {/* Admin sections */}
-      {isAdmin && (
-        <>
-          <Section title="Administration" isDark={isDark}>
-            <Row icon="layout" label="Admin Dashboard" isDark={isDark} onClick={() => navigate('/admin')} />
-            <Row icon="bag" label="All Orders" isDark={isDark} onClick={() => navigate('/admin/orders')} />
-            <Row icon="users" label="Users" isDark={isDark} onClick={() => navigate('/admin/users')} />
-            <Row icon="store" label="Stores" isDark={isDark} onClick={() => navigate('/admin/stores')} />
-            <Row icon="package" label="Products" isDark={isDark} onClick={() => navigate('/admin/products')} />
-            <Row icon="chart" label="Analytics" isDark={isDark} onClick={() => navigate('/admin/analytics')} />
-            <Row icon="wallet" label="Platform Earnings" isDark={isDark} onClick={() => navigate('/admin/platform-earnings')} />
-            <Row icon="message" label="Messages" isDark={isDark} onClick={() => navigate('/admin/messages')} />
-            <Row icon="settings" label="Platform Settings" isDark={isDark} onClick={() => navigate('/admin/settings')} />
-          </Section>
-          <Section title="Account" isDark={isDark}>
-            <Row icon="user" label="Edit Profile" isDark={isDark} onClick={openEdit} />
-            <Row icon="lock" label="Change Password" isDark={isDark} onClick={() => navigate('/change-password')} />
-          </Section>
-        </>
-      )}
-
-      {/* Agent / Pickup-agent sections */}
-      {isAgent && (
-        <>
-          <Section title="Agent Hub" isDark={isDark}>
-            <Row icon="bag" label="Orders" isDark={isDark} onClick={() => navigate('/pickup-agent')} />
-            <Row icon="chart" label="Earnings" isDark={isDark} onClick={() => navigate('/pickup-agent/earnings')} />
-            <Row icon="layout" label="Shift" isDark={isDark} onClick={() => navigate('/pickup-agent/shift')} />
-          </Section>
-          <Section title="Account" isDark={isDark}>
-            <Row icon="user" label="Edit Profile" isDark={isDark} onClick={openEdit} />
-            <Row icon="lock" label="Change Password" isDark={isDark} onClick={() => navigate('/change-password')} />
-          </Section>
-        </>
-      )}
-
-      {/* Support */}
-      <Section title="Support" isDark={isDark}>
-        <Row icon="bell" label="Notifications" badge={notifCount > 0 ? notifCount : undefined} isDark={isDark} onClick={() => navigate('/notifications')} />
-        <Row icon="help" label="Help & Support" isDark={isDark} onClick={() => navigate('/support')} />
-        <Row icon="external" label="App Version" right="1.0.0" isDark={isDark} />
-      </Section>
-
-      {/* Sign out */}
-      <div style={{ margin: '8px 16px 24px' }}>
-        <button
-          onClick={handleLogout}
-          style={{ width: '100%', height: 48, borderRadius: 12, background: 'none', border: `1px solid rgba(255,69,58,0.3)`, color: '#FF453A', fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer', WebkitTapHighlightColor: 'transparent', fontFamily: F }}
-        >
-          <Icon d={IC.logout} size={17} color="#FF453A" sw={1.8} />
-          Sign Out
+        <div data-testid="text-profile-name" style={{ marginTop: 14, fontSize: 22, fontWeight: 700, letterSpacing: -0.2 }}>{name}</div>
+        {email && <div style={{ marginTop: 4, fontSize: 14, color: soft }}>{email}</div>}
+        <button onClick={openEdit} style={{ marginTop: 16, height: 40, padding: '0 22px', border: `1px solid ${isDark ? 'rgba(255,255,255,0.2)' : '#D6D6D6'}`, borderRadius: 20, background: 'transparent', fontSize: 14, fontWeight: 600, color: ink, cursor: 'pointer', fontFamily: F }}>
+          Edit profile
         </button>
       </div>
+
+      <PlainGroup title="Account" isDark={isDark}>
+        <PlainRow icon={UserIcon} label="Personal information" onClick={openEdit} isDark={isDark} />
+        <PlainRow icon={Lock} label="Change password" onClick={() => navigate('/change-password')} isDark={isDark} />
+        <PlainRow icon={SettingsIcon} label="Settings" onClick={() => navigate('/settings')} isDark={isDark} last />
+      </PlainGroup>
+
+      <PlainGroup title="Activity" isDark={isDark}>
+        <PlainRow icon={ShoppingBag} label="My orders" onClick={() => navigate('/orders')} isDark={isDark} />
+        <PlainRow icon={Heart} label="Wishlist" onClick={() => navigate('/wishlist')} isDark={isDark} />
+        <PlainRow icon={Bell} label="Notifications" right={notifCount > 99 ? '99+' : notifCount} onClick={() => navigate('/notifications')} isDark={isDark} last />
+      </PlainGroup>
+
+      <PlainGroup title="More" isDark={isDark}>
+        <PlainRow icon={Gift} label="Referral" onClick={() => navigate('/referral')} isDark={isDark} />
+        <PlainRow icon={Lightbulb} label="Suggestions" onClick={() => navigate('/suggestions')} isDark={isDark} />
+        <PlainRow icon={Headphones} label="Support" onClick={() => navigate('/support')} isDark={isDark} />
+        <PlainRow icon={Download} label="Download my data" onClick={downloadMyData} isDark={isDark} last />
+      </PlainGroup>
+
+      <div style={{ padding: '24px 24px 0' }}>
+        <button data-testid="button-logout" onClick={handleLogout} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 16, height: 56, padding: 0, border: 0, borderTop: `1px solid ${line}`, background: 'transparent', textAlign: 'left', cursor: 'pointer', color: '#D93025', fontFamily: F }}>
+          <LogOut size={22} strokeWidth={1.75} color="#D93025" aria-hidden="true" />
+          <span style={{ fontSize: 16, fontWeight: 600 }}>Log out</span>
+        </button>
+      </div>
+      <p style={{ padding: '12px 24px 0', margin: 0, fontSize: 12, color: isDark ? 'rgba(235,235,245,0.4)' : '#A3A3A3', textAlign: 'center' }}>KiyuMart · Version 1.0.0</p>
     </div>
   );
 }
