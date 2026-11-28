@@ -5,7 +5,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import { useHaptic } from "@/hooks/useHaptic";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { fetchSameOriginJson, queryClient } from "@/lib/queryClient";
+import { fetchSameOriginJson } from "@/lib/queryClient";
 import {
   readPersistedCheckoutCoupons,
   writePersistedCheckoutCoupon,
@@ -14,15 +14,12 @@ import {
 import {
   readExcludedCartIds,
   writeExcludedCartIds,
-  readSavedForLater,
-  writeSavedForLater,
-  type SavedForLaterItem,
 } from "@/lib/cartSelection";
 import { couponDiscountFor, resolveProcessingFeePercent, summarizeCart } from "@/lib/cartTotals";
 
 /*
  * Phone cart — design "A" (approved 28 Nov 2026, docs/design/cart-redesign-20261128).
- * Items grouped by shop, tick to choose what to check out, one-tap shop coupons
+ * Items grouped by shop, tick to choose what to check out, one delivery location, one-tap shop coupons
  * (one per shop; each reduces only that shop's items), Paystack charges
  * shown and passed to the buyer exactly as checkout and the server compute them.
  * Desktop cart (Cart.tsx) is unchanged.
@@ -163,11 +160,6 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
     if (kept.length !== excluded.length) { setExcluded(kept); writeExcludedCartIds(userId, kept); }
   }, [cartItems, excluded, userId]);
   const setExcludedIds = (ids: string[]) => { setExcluded(ids); writeExcludedCartIds(userId, ids); };
-
-  /* ── Saved for later (kept with size/colour so it can come back) ── */
-  const [saved, setSaved] = useState<SavedForLaterItem[]>(() => readSavedForLater(userId));
-  useEffect(() => { setSaved(readSavedForLater(userId)); }, [userId]);
-  const setSavedItems = (items: SavedForLaterItem[]) => { setSaved(items); writeSavedForLater(userId, items); };
 
   /* ── Stock split ── */
   const isSoldOut = (i: CartItem) => typeof i.availableStock === "number" && i.availableStock <= 0;
@@ -313,39 +305,6 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
   const toggleAll = () => { haptic("light"); setExcludedIds(allSelected ? available.map((i) => i.id) : []); };
   const toggleItem = (id: string) => { haptic("light"); setExcludedIds(excluded.includes(id) ? excluded.filter((x) => x !== id) : [...excluded, id]); };
 
-  const saveForLater = (item: CartItem) => {
-    haptic("medium");
-    const entry: SavedForLaterItem = {
-      productId: item.productId, name: item.productName, image: item.productImage,
-      price: parseFloat(item.price) || 0, variantId: item.variantId || null,
-      selectedColor: item.selectedColor || null, selectedSize: item.selectedSize || null,
-      selectedImageIndex: item.selectedImageIndex ?? null, savedAt: Date.now(),
-    };
-    setSavedItems([entry, ...saved.filter((s) => !(s.productId === entry.productId && s.selectedColor === entry.selectedColor && s.selectedSize === entry.selectedSize))]);
-    // Also keep it on the buyer's wishlist so it shows on every device.
-    void fetchSameOriginJson("/api/wishlist", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ productId: item.productId }),
-    }).then(() => queryClient.invalidateQueries({ queryKey: ["/api/wishlist"] })).catch(() => {});
-    onRemoveItem(item.id);
-  };
-
-  const moveToCart = async (s: SavedForLaterItem) => {
-    try {
-      await fetchSameOriginJson("/api/cart", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId: s.productId, quantity: 1, variantId: s.variantId,
-          selectedColor: s.selectedColor, selectedSize: s.selectedSize, selectedImageIndex: s.selectedImageIndex,
-        }),
-      });
-      setSavedItems(saved.filter((x) => x !== s));
-      queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
-    } catch {
-      toast({ title: "Couldn't move to cart", description: "This item may be sold out now.", variant: "destructive" });
-    }
-  };
-
   const findSimilar = (name: string) => {
     const q = name.replace(/^demo\s*[–-]\s*/i, "").split(/\s+/).slice(0, 3).join(" ");
     navigate(`/search?q=${encodeURIComponent(q)}`);
@@ -400,7 +359,7 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
   }
 
   /* ── Empty cart ── */
-  if (cartItems.length === 0 && saved.length === 0) {
+  if (cartItems.length === 0) {
     return (
       <div style={{ minHeight: "100dvh", background: t.bg, display: "flex", flexDirection: "column", fontFamily: F, color: t.txt }}>
         <div style={headerStyle}>
@@ -413,7 +372,7 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
           </div>
           <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Your cart is empty</div>
           <div style={{ fontSize: 14, color: t.muted, lineHeight: 1.5, marginBottom: 24 }}>
-            Browse shops across KiyuMart and add the pieces you love. Items you saved for later will show here too.
+            Browse shops across KiyuMart and add the pieces you love.
           </div>
           <button data-testid="button-shop-now" onClick={() => navigate("/")} style={{ height: 52, width: "100%", border: 0, borderRadius: 26, background: t.accentDeep, color: "#fff", fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: F }}>
             Start shopping
@@ -462,7 +421,7 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
         <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={t.accent} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z" /><circle cx="12" cy="10" r="2.5" /></svg>
         <span style={{ flex: 1, fontSize: 14 }}>
           <b>Deliver to:</b> <span style={{ color: t.link, fontWeight: 600 }}>Add your location</span>
-          <br /><span style={{ fontSize: 12, color: t.muted }}>to see delivery fees for your order</span>
+          <br /><span style={{ fontSize: 12, color: t.muted }}>once, for your whole order</span>
         </span>
         <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={t.muted} strokeWidth={2} strokeLinecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
       </button>
@@ -473,7 +432,7 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
             <Tick on={allSelected} accent={t.accent} ring={t.ring} />
             Select all
           </button>
-          <span style={{ fontSize: 12, color: t.muted }}>Each shop delivers separately</span>
+          <span style={{ fontSize: 12, color: t.muted }}>One delivery fee for your order</span>
         </div>
       )}
 
@@ -549,7 +508,6 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
                       <button aria-label="Increase quantity" disabled={atMax} onClick={() => { haptic("light"); onQuantityChange(item.id, 1); }} style={{ width: 34, height: 36, border: 0, background: "none", fontSize: 18, fontWeight: 700, color: t.txt, cursor: atMax ? "not-allowed" : "pointer", opacity: atMax ? 0.35 : 1, fontFamily: F }}>+</button>
                     </div>
                     <div style={{ display: "flex", gap: 2 }}>
-                      <button onClick={() => saveForLater(item)} aria-label={`Save ${item.productName} for later`} style={{ height: 36, border: 0, background: "none", padding: "0 6px", fontSize: 12, fontWeight: 600, color: t.sub, cursor: "pointer", fontFamily: F }}>Save</button>
                       <button onClick={() => { haptic("medium"); onRemoveItem(item.id); }} aria-label={`Remove ${item.productName}`} style={{ height: 36, border: 0, background: "none", padding: "0 0 0 6px", fontSize: 12, fontWeight: 600, color: t.danger, cursor: "pointer", fontFamily: F }}>Remove</button>
                     </div>
                   </div>
@@ -603,30 +561,9 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
             <div style={{ ...row, fontSize: 13 }}>
               <span style={{ color: t.muted }}>Shop subtotal</span><span style={{ fontWeight: 700 }}>{money(shop.subtotal)}</span>
             </div>
-            <div style={{ ...row, fontSize: 13 }}>
-              <span style={{ color: t.muted }}>Delivery from this shop</span>
-              <button onClick={goCheckout} style={{ border: 0, background: "none", padding: 0, color: t.link, fontWeight: 600, fontSize: 13, cursor: "pointer", fontFamily: F }}>Add location</button>
-            </div>
           </div>
         </section>
       ))}
-
-      {/* Saved for later */}
-      {saved.length > 0 && (
-        <section style={{ margin: "16px 12px 0", background: t.card, borderRadius: 16, padding: "12px 14px" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Saved for later ({saved.length})</div>
-          {saved.map((s) => (
-            <div key={`${s.productId}-${s.selectedColor}-${s.selectedSize}-${s.savedAt}`} style={{ display: "flex", gap: 12, alignItems: "center", padding: "6px 0" }}>
-              {s.image ? <img src={s.image} alt={s.name} style={{ width: 48, height: 60, borderRadius: 8, objectFit: "cover" }} /> : <span style={{ width: 48, height: 60, borderRadius: 8, background: t.stepBg }} />}
-              <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600 }}>
-                {s.name}
-                <div style={{ fontSize: 12, color: t.muted, fontWeight: 400 }}>{[money(s.price), variantText(s)].filter(Boolean).join(" · ")}</div>
-              </div>
-              <button onClick={() => moveToCart(s)} style={{ height: 34, padding: "0 12px", border: 0, borderRadius: 17, background: t.tintStrong, color: t.link, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: F, flexShrink: 0 }}>Move to cart</button>
-            </div>
-          ))}
-        </section>
-      )}
 
       {/* Sold out */}
       {unavailable.length > 0 && (
@@ -664,7 +601,7 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
           <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 14 }}>
             <div style={row}><span style={{ color: t.muted }}>Items ({sum.itemCount})</span><span>{money(sum.itemsOriginal)}</span></div>
             <div style={row}><span style={{ color: t.muted }}>Discounts</span><span style={{ color: t.link, fontWeight: 700 }}>− {money(sum.discounts)}</span></div>
-            <div style={row}><span style={{ color: t.muted }}>Delivery ({shops.length} {shops.length === 1 ? "shop" : "shops"})</span><span style={{ color: t.link, fontWeight: 600 }}>Add location</span></div>
+            <div style={row}><span style={{ color: t.muted }}>Delivery</span><span style={{ color: t.muted }}>After location</span></div>
             <div style={row}>
               <span style={{ color: t.muted }}>Shop coupons</span>
               {sum.coupon > 0 ? <span style={{ color: t.link, fontWeight: 700 }}>− {money(sum.coupon)}</span> : <span>—</span>}

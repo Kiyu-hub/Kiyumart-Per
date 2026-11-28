@@ -15,7 +15,7 @@ name: Keep backend awake
 
 on:
   schedule:
-    - cron: "*/14 * * * *"   # every 14 minutes (just under Render's 15-min idle window)
+    - cron: "*/5 * * * *"    # every 5 minutes (GitHub's minimum); runs are often delayed, so ping well inside Render's 15-min idle window
   workflow_dispatch: {}       # allow manual "Run workflow" from the Actions tab
 
 permissions:
