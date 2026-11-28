@@ -117,6 +117,7 @@ import { logSystemActivity } from "./observability";
 import { toPublicStore, toPublicStores, toAdminStoreView, resolveAdminStoreViewer } from "./publicStore";
 import { clearPurchasedCartItems } from "./cartCleanup";
 import { normalizeRequestedCouponCodes } from "./couponRequest";
+import { computeDeliveryFees } from "./deliveryFees";
 import { encryptField, decryptField, isEncrypted } from "./utils/sensitiveEncrypt";
 import {
   recordReferralSignup,
@@ -10782,9 +10783,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Recalculate total server-side (note: multi-vendor coupons calculated per-seller later)
       const requestedExternalDeliveryByBus = orderData.externalDeliveryByBus === true;
       const requestedExternalDeliveryType = String(orderData.externalDeliveryType || "").toLowerCase().trim();
-      const deliveryFee = externalRiderSystemEnabled
-        ? 0
-        : parseFloat(orderData.deliveryFee || "0");
       const clientTotal = parseFloat(orderData.total || "0");
       
       // Detect multi-vendor cart
@@ -10871,6 +10869,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       }
+      // Delivery fee: worked out here from the buyer's zone (never trusted from the
+      // browser). Each shop is its own parcel, so each shop pays the zone fee.
+      let deliveryZoneForFee: any = null;
+      if (!isPickupOrder && !externalRiderSystemEnabled && resolvedDeliveryZoneId) {
+        const zones = await storage.getDeliveryZones(false, "delivery_zone");
+        deliveryZoneForFee = zones.find((zone: any) => String(zone.id) === String(resolvedDeliveryZoneId)) || null;
+      }
+      const deliveryFeeResult = computeDeliveryFees({
+        externalDelivery: externalRiderSystemEnabled,
+        isPickup: isPickupOrder,
+        zone: deliveryZoneForFee,
+        commission: (platformSettings as any)?.deliveryFeeCommission ?? 0,
+        sellerIds: Array.from(productsBySeller.keys()),
+      });
+      if (!deliveryFeeResult.ok) {
+        return res.status(400).json({ error: deliveryFeeResult.error, userMessage: deliveryFeeResult.userMessage });
+      }
+      const deliveryFee = deliveryFeeResult.total;
+      const deliveryFeeBySeller = deliveryFeeResult.feeBySeller;
+
       const resolvedDeliveryLatitude = isPickupOrder ? null : toFiniteNumber(orderData.deliveryLatitude);
       const resolvedDeliveryLongitude = isPickupOrder ? null : toFiniteNumber(orderData.deliveryLongitude);
 
@@ -10908,15 +10926,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       if (isMultiVendor) {
-        // Multi-vendor: create separate order per seller with proportional delivery fee
+        // Multi-vendor: create separate order per seller, each with its own delivery fee
         // Coupon applies ONLY to the seller who issued it
         const itemsBySeller = await Promise.all(
           Array.from(productsBySeller.values()).map(async sellerGroup => {
             const sellerSubtotal = sellerGroup.products.reduce((sum, item) => sum + parseFloat(item.total), 0);
-            const sellerProportion = sellerSubtotal / serverSubtotal;
-            
-            // Proportionally allocate delivery fee to each seller
-            const sellerDeliveryFee = deliveryFee * sellerProportion;
+            // Each shop is its own parcel with its own delivery fee
+            const sellerDeliveryFee = deliveryFeeBySeller.get(sellerGroup.sellerId) || 0;
             
             // Apply coupon discount ONLY to the seller who owns the coupon
             let sellerCouponDiscount = 0;

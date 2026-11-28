@@ -130,8 +130,8 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
   const { isExternalRiderSystemEnabled } = usePlatformSettings();
   const deliveryValue = isExternalRiderSystemEnabled ? "Confirmed after checkout" : "Calculated at checkout";
   const deliveryNote = isExternalRiderSystemEnabled
-    ? "Delivery cost depends on your address and the shops. We confirm it with you before dispatch."
-    : "Delivery fee is calculated at checkout from your address.";
+    ? "Each shop delivers its own parcel. We confirm the delivery cost with you before dispatch."
+    : "Each shop delivers its own parcel. The fee for your area is worked out at checkout.";
 
   const t = {
     accent: "#009688",
@@ -440,7 +440,7 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
             <Tick on={allSelected} accent={t.accent} ring={t.ring} />
             Select all
           </button>
-          <span style={{ fontSize: 12, color: t.muted }}>Delivered from each shop</span>
+          <span style={{ fontSize: 12, color: t.muted }}>Each shop delivers separately</span>
         </div>
       )}
 
@@ -569,6 +569,9 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
             <div style={{ ...row, fontSize: 13 }}>
               <span style={{ color: t.muted }}>Shop subtotal</span><span style={{ fontWeight: 700 }}>{money(shop.subtotal)}</span>
             </div>
+            <div style={{ ...row, fontSize: 13 }}>
+              <span style={{ color: t.muted }}>Delivery from this shop</span><span style={{ color: t.muted }}>{deliveryValue}</span>
+            </div>
           </div>
         </section>
       ))}
@@ -609,7 +612,7 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
           <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 14 }}>
             <div style={row}><span style={{ color: t.muted }}>Items ({sum.itemCount})</span><span>{money(sum.itemsOriginal)}</span></div>
             <div style={row}><span style={{ color: t.muted }}>Discounts</span><span style={{ color: t.link, fontWeight: 700 }}>− {money(sum.discounts)}</span></div>
-            <div style={row}><span style={{ color: t.muted }}>Delivery</span><span style={{ color: t.muted }}>{deliveryValue}</span></div>
+            <div style={row}><span style={{ color: t.muted }}>Delivery ({shops.length} {shops.length === 1 ? "parcel" : "parcels"})</span><span style={{ color: t.muted }}>{deliveryValue}</span></div>
             <div style={row}>
               <span style={{ color: t.muted }}>Shop coupons</span>
               {sum.coupon > 0 ? <span style={{ color: t.link, fontWeight: 700 }}>− {money(sum.coupon)}</span> : <span>—</span>}

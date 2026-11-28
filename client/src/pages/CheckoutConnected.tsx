@@ -807,14 +807,15 @@ export default function CheckoutConnected() {
   const selectedPickupStation = pickupStations.find((station) => station.id === selectedPickupStationId);
   const usingExternalDeliveryFlow = isExternalRiderSystemEnabled && deliveryMethod !== "pickup";
   const deliveryFeeCommission = !isExternalRiderSystemEnabled ? Number((settings as any)?.deliveryFeeCommission ?? 0) : 0;
-  const deliveryFee =
-    deliveryMethod === "pickup"
+  // Each shop is its own parcel, so each shop pays the zone fee (the server
+  // works out the same amount and rejects any other).
+  const deliveryShopCount = Math.max(1, cartSellerIds.length);
+  const deliveryFeePerShop =
+    deliveryMethod === "pickup" || usingExternalDeliveryFlow || !selectedZone
       ? 0
-      : usingExternalDeliveryFlow
-        ? 0
-        : selectedZone
-          ? parseFloat(selectedZone.fee) + deliveryFeeCommission
-          : 0;
+      : Math.round((parseFloat(selectedZone.fee) + deliveryFeeCommission) * 100) / 100;
+  const deliveryFee = deliveryFeePerShop * deliveryShopCount;
+  const deliveryLabelSuffix = deliveryFeePerShop > 0 && deliveryShopCount > 1 ? ` (${deliveryShopCount} shops)` : "";
 
   // Each coupon is worked out on its own shop's items, as the server does.
   const couponDiscountBySeller = new Map(
@@ -1558,7 +1559,7 @@ export default function CheckoutConnected() {
                   </div>
                   {deliveryMethod !== "pickup" && (
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Delivery Fee</span>
+                      <span className="text-muted-foreground">Delivery Fee{deliveryLabelSuffix}</span>
                       <span data-testid="text-checkout-delivery">
                         {usingExternalDeliveryFlow ? "To be communicated" : formatPrice(deliveryFee)}
                       </span>
@@ -1663,7 +1664,7 @@ export default function CheckoutConnected() {
               </div>
               {deliveryMethod !== "pickup" && (
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Delivery</span>
+                  <span className="text-muted-foreground">Delivery{deliveryLabelSuffix}</span>
                   <span className="font-medium">
                     {usingExternalDeliveryFlow ? "Confirmed after checkout" : formatPrice(deliveryFee)}
                   </span>

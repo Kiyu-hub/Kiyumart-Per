@@ -23,3 +23,10 @@ Wording: "delivery" throughout, never "shipping".
 
 Update 28 Nov (owner): one delivery location for the whole order (per-shop delivery lines removed); "Save" / "Saved for later" removed from the cart.
 Update 28 Nov (owner): no "one delivery fee" wording. Delivery depends on the address and the shops and is confirmed after checkout (same as desktop checkout); "Calculated at checkout" when internal riders are on.
+
+## Delivery model (approved 28 Nov 2026)
+- Each shop is its own parcel (Shopee / Etsy model). Items from the same shop share one delivery.
+- Location is added once at the top of the cart.
+- External delivery (current): nothing charged in the app; each shop shows "Delivery: confirmed after checkout".
+- Own riders: the server works out the fee from the buyer's delivery zone (+ platform delivery commission) for each shop and ignores any fee sent by the browser. Checkout shows "Delivery (N shops)".
+- Shop coupons apply only to the issuing shop's items; other shops are unaffected.

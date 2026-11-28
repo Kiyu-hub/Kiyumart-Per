@@ -2,6 +2,7 @@
 // cart's money maths must match checkout / the server.
 import { matchPurchasedCartRows, clearPurchasedCartItems } from "../cartCleanup";
 import { normalizeRequestedCouponCodes } from "../couponRequest";
+import { computeDeliveryFees } from "../deliveryFees";
 import { filterCheckoutCartItems } from "../../client/src/lib/cartSelection";
 import { summarizeCart, couponDiscountFor, computeExactProcessingFee, resolveProcessingFeePercent } from "../../client/src/lib/cartTotals";
 
@@ -69,6 +70,19 @@ async function main() {
   check(near(both.fee, perShopFee), "cart charge = sum of per-shop server charges");
   const onlyA = summarizeCart({ lines, couponDiscount: offA, feePercent: 1.95 });
   check(near(onlyA.itemsNet - onlyA.coupon - shopA + offA, shopB), "shop without a coupon is unaffected");
+  console.log("delivery fees (server-side, one parcel per shop)");
+  const own = computeDeliveryFees({ externalDelivery: false, isPickup: false, zone: { fee: "20", isActive: true }, commission: "0", sellerIds: ["A", "B", "A"] });
+  check(own.ok && own.total === 40 && own.feeBySeller.get("A") === 20 && own.feeBySeller.get("B") === 20, "own riders: zone fee for each shop (2 shops = GH₵40)");
+  const withCommission = computeDeliveryFees({ externalDelivery: false, isPickup: false, zone: { fee: "20" }, commission: "2.5", sellerIds: ["A"] });
+  check(withCommission.ok && withCommission.total === 22.5, "platform delivery commission added per shop");
+  const ext = computeDeliveryFees({ externalDelivery: true, isPickup: false, zone: null, sellerIds: ["A", "B"] });
+  check(ext.ok && ext.total === 0, "external delivery: nothing charged in the app");
+  const pick = computeDeliveryFees({ externalDelivery: false, isPickup: true, zone: null, sellerIds: ["A"] });
+  check(pick.ok && pick.total === 0, "pickup: no delivery fee");
+  const missing = computeDeliveryFees({ externalDelivery: false, isPickup: false, zone: null, sellerIds: ["A"] });
+  check(!missing.ok, "own riders without a zone is refused (browser can't set the fee)");
+  const inactive = computeDeliveryFees({ externalDelivery: false, isPickup: false, zone: { fee: "20", isActive: false }, sellerIds: ["A"] });
+  check(!inactive.ok, "inactive zone is refused");
   check(resolveProcessingFeePercent(undefined) === 1.95 && resolveProcessingFeePercent("1.5") === 1.5, "fee percent from settings, default 1.95");
 }
 
