@@ -636,6 +636,7 @@ export interface IStorage {
   updateCartItem(id: string, quantity: number): Promise<Cart | undefined>;
   removeFromCart(id: string): Promise<boolean>;
   clearCart(userId: string): Promise<void>;
+  removePurchasedCartItems(userId: string, orderIds: string[]): Promise<number>;
   reassignCartVariantReferences(sourceVariantIds: string[], targetVariantId: string): Promise<void>;
   clearCartVariantReferences(variantIds: string[]): Promise<void>;
   
@@ -4435,6 +4436,36 @@ export class DbStorage implements IStorage {
 
   async clearCart(userId: string): Promise<void> {
     await db.delete(cart).where(eq(cart.userId, userId));
+  }
+
+  async removePurchasedCartItems(userId: string, orderIds: string[]): Promise<number> {
+    const ids = Array.from(new Set(orderIds.map((id) => String(id || "").trim()).filter(Boolean)));
+    if (!ids.length) return 0;
+    const purchased = await db
+      .select({
+        productId: orderItems.productId,
+        variantId: orderItems.variantId,
+        selectedColor: orderItems.selectedColor,
+        selectedSize: orderItems.selectedSize,
+      })
+      .from(orderItems)
+      .where(inArray(orderItems.orderId, ids));
+    if (!purchased.length) return 0;
+    const rows = await db
+      .select({
+        id: cart.id,
+        productId: cart.productId,
+        variantId: cart.variantId,
+        selectedColor: cart.selectedColor,
+        selectedSize: cart.selectedSize,
+      })
+      .from(cart)
+      .where(eq(cart.userId, userId));
+    const { matchPurchasedCartRows } = await import("./cartCleanup");
+    const toDelete = matchPurchasedCartRows(rows, purchased);
+    if (!toDelete.length) return 0;
+    await db.delete(cart).where(and(eq(cart.userId, userId), inArray(cart.id, toDelete)));
+    return toDelete.length;
   }
 
   async clearCartThroughCheckoutTime(userId: string, checkoutStartedAt: Date): Promise<void> {

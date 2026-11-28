@@ -74,6 +74,31 @@ const unknown = new Set();
 const send = (res, data) => res.json(data);
 const visibleProducts = () => (isMultiVendor ? products : products.filter((p) => p.storeId === "st1"));
 
+// MOCK_CART=1: a signed-in sample buyer with a multi-shop cart (cart page review).
+if (process.env.MOCK_CART === "1") {
+  app.use(express.json());
+  const buyer = { id: "buyer1", role: "buyer", name: "Sample Buyer", email: "buyer@example.test", isActive: true };
+  let cartRows = [
+    { id: "ci1", productId: "p1", quantity: 1, variantId: "v1", selectedColor: "Burgundy", selectedSize: "M", selectedImageIndex: 0, availableStock: 3 },
+    { id: "ci2", productId: "p3", quantity: 1, variantId: null, selectedColor: null, selectedSize: "L", selectedImageIndex: 0, availableStock: 8 },
+    { id: "ci3", productId: "p8", quantity: 1, variantId: "v8", selectedColor: "Black", selectedSize: "L", selectedImageIndex: 0, availableStock: 2 },
+    { id: "ci4", productId: "p4", quantity: 1, variantId: null, selectedColor: null, selectedSize: "S", selectedImageIndex: 0, availableStock: 0 },
+  ];
+  const coupons = [{ id: "cp1", code: "KIYU10", sellerId: "u1", discountType: "percentage", discountValue: "10", minimumPurchase: "500", isActive: true }];
+  const view = () => cartRows.map((c) => { const p = products.find((x) => x.id === c.productId); return { ...c, productName: p.name, productImage: p.images[0], price: p.price }; });
+  app.get("/api/auth/me", (_q, r) => send(r, { user: buyer, ...buyer }));
+  app.get("/api/cart", (_q, r) => send(r, view()));
+  app.patch("/api/cart/:id", (q, r) => { cartRows = cartRows.map((c) => c.id === q.params.id ? { ...c, quantity: Math.max(1, Number(q.body.quantity) || 1) } : c); send(r, { ok: true }); });
+  app.delete("/api/cart/:id", (q, r) => { cartRows = cartRows.filter((c) => c.id !== q.params.id); send(r, { success: true }); });
+  app.post("/api/cart", (q, r) => { const id = `ci${Date.now()}`; cartRows.push({ id, quantity: 1, availableStock: 5, ...q.body }); send(r, { id }); });
+  app.post("/api/wishlist", (_q, r) => send(r, { ok: true }));
+  app.get("/api/wishlist", (_q, r) => send(r, []));
+  app.get("/api/stores/by-seller/:sid", (q, r) => { const s = stores.find((x) => x.primarySellerId === q.params.sid); s ? send(r, { ...s, verificationStatus: s.id === "st1" ? "verified" : s.verificationStatus }) : r.status(404).json({ error: "Store not found" }); });
+  app.get("/api/coupons/available", (q, r) => send(r, coupons.filter((c) => c.sellerId === q.query.sellerId && Number(q.query.orderTotal) >= Number(c.minimumPurchase))));
+  app.post("/api/coupons/validate", (q, r) => { const c = coupons.find((x) => x.code === String(q.body.code).toUpperCase() && x.sellerId === q.body.sellerId); if (!c) return send(r, { valid: false, message: "Invalid coupon code" }); if (Number(q.body.orderTotal) < Number(c.minimumPurchase)) return send(r, { valid: false, message: "Minimum purchase of 500 required" }); send(r, { valid: true, coupon: c, discountAmount: (Number(q.body.orderTotal) * 0.1).toFixed(2) }); });
+  settings.processingFeePercent = "1.95";
+}
+
 app.get("/api/health", (_q, r) => send(r, { status: "ok", database: "mock" }));
 app.get("/api/maintenance/status", (_q, r) => send(r, { isMaintenanceMode: false, isAutoMaintenance: false, maintenanceMessage: null, maintenanceScheduledEnd: null }));
 app.get(["/api/public/platform-settings", "/api/platform-settings", "/api/settings"], (_q, r) => send(r, settings));

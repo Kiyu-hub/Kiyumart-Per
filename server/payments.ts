@@ -159,8 +159,9 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
         console.error('[STOCK] post-payment decrement error:', stockErr?.message || stockErr);
       }
 
-      if (typeof storage.clearCart === "function") {
-        await storage.clearCart(primaryOrder.buyerId);
+      if (typeof (storage as any).removePurchasedCartItems === "function" || typeof storage.clearCart === "function") {
+        const { clearPurchasedCartItems } = await import("./cartCleanup");
+        await clearPurchasedCartItems(storage as any, primaryOrder.buyerId, orders.map((o: any) => o?.id));
       } else if (typeof storage.clearCartThroughCheckoutTime === "function") {
         const checkoutStartedAt = orders.reduce((earliest: Date, order: any) => {
           const createdAt = order?.createdAt ? new Date(order.createdAt) : earliest;

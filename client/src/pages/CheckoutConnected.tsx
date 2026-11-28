@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { fetchSameOrigin, fetchSameOriginJson, queryClient } from "@/lib/queryClient";
@@ -23,6 +23,7 @@ import {
   readPersistedCheckoutCoupon,
   writePersistedCheckoutCoupon,
 } from "@/lib/checkoutCoupon";
+import { clearExcludedCartIds, filterCheckoutCartItems, readExcludedCartIds } from "@/lib/cartSelection";
 import { loadPaystackInlineScript, PaystackInlineService, resetPaystackGuard } from "@/lib/paystackInline";
 import { calculateProductPricingSummary, getCurrentSellingPrice, getOriginalDisplayPrice } from "@/lib/pricing";
 
@@ -34,6 +35,7 @@ interface CartItem {
   selectedColor?: string | null;
   selectedSize?: string | null;
   selectedImageIndex?: number | null;
+  availableStock?: number | null;
 }
 
 interface Product {
@@ -192,7 +194,7 @@ export default function CheckoutConnected() {
     });
   }, [isAuthenticated]);
 
-  const { data: cartItems = [] } = useQuery<CartItem[]>({
+  const { data: allCartItems = [] } = useQuery<CartItem[]>({
     queryKey: ["/api/cart"],
     enabled: isAuthenticated,
     queryFn: () =>
@@ -204,6 +206,12 @@ export default function CheckoutConnected() {
     refetchOnReconnect: true,
     staleTime: 0,
   });
+
+  // The phone cart lets buyers untick items; only ticked, in-stock rows are checked out.
+  const cartItems = useMemo(
+    () => filterCheckoutCartItems(allCartItems, readExcludedCartIds(user?.id)),
+    [allCartItems, user?.id],
+  );
 
   const { data: deliveryZones = [] } = useQuery<DeliveryZone[]>({
     queryKey: ["/api/delivery-zones"],
@@ -492,7 +500,7 @@ export default function CheckoutConnected() {
         setCouponCode(restoredCode);
         writePersistedCheckoutCoupon(user?.id, {
           code: restoredCode,
-          sellerId: itemsWithProducts[0]?.product?.sellerId || null,
+          sellerId: checkoutSellerId,
           savedAt: Date.now(),
         });
         toast({
@@ -609,9 +617,14 @@ export default function CheckoutConnected() {
       }
       setIsPaymentReviewOpen(false);
       setIsRedirectingToSuccess(true);
-      queryClient.setQueryData(["/api/cart"], []);
+      // Remove only what was bought; unticked items stay in the cart.
+      const purchasedCartIds = new Set(cartItems.map((item) => item.id));
+      queryClient.setQueryData(["/api/cart"], allCartItems.filter((item) => !purchasedCartIds.has(item.id)));
+      clearExcludedCartIds(user?.id);
       navigate(`/payment/success?orderId=${resolvedOrderId}`);
-      void fetchSameOrigin("/api/cart", { method: "DELETE", credentials: "include" }).catch(() => {});
+      purchasedCartIds.forEach((cartId) => {
+        void fetchSameOrigin(`/api/cart/${encodeURIComponent(cartId)}`, { method: "DELETE", credentials: "include" }).catch(() => {});
+      });
       void queryClient.invalidateQueries({ queryKey: ["/api/cart"] });
       void queryClient.invalidateQueries({ queryKey: ["/api/orders"] });
       void queryClient.invalidateQueries({ queryKey: [`/api/orders/${resolvedOrderId}`] });
@@ -684,7 +697,20 @@ export default function CheckoutConnected() {
   const subtotal = pricingSummary.subtotal;
   const originalSubtotal = pricingSummary.originalSubtotal;
   const productSavings = pricingSummary.productSavings;
-  const checkoutSellerId = itemsWithProducts[0]?.product?.sellerId || user?.id || null;
+  // One coupon per order, for the shop that issued it. Prefer the shop whose
+  // coupon the buyer applied in the cart, if that shop is in this checkout.
+  const cartSellerIds = itemsWithProducts.map((item) => item.product?.sellerId).filter(Boolean) as string[];
+  const persistedCouponSellerId = readPersistedCheckoutCoupon(user?.id)?.sellerId || null;
+  const checkoutSellerId =
+    (persistedCouponSellerId && cartSellerIds.includes(persistedCouponSellerId)
+      ? persistedCouponSellerId
+      : cartSellerIds[0]) || user?.id || null;
+  // The server validates and applies the coupon against this shop's subtotal only.
+  const couponSellerSubtotal = calculateProductPricingSummary(
+    itemsWithProducts
+      .filter((item) => item.product?.sellerId === checkoutSellerId)
+      .map((item) => ({ ...item.product!, quantity: item.quantity })),
+  ).subtotal;
 
   const { data: availableCoupons = [] } = useQuery<Coupon[]>({
     queryKey: ["/api/coupons/available", checkoutSellerId, subtotal],
@@ -692,7 +718,7 @@ export default function CheckoutConnected() {
     queryFn: () =>
       fetchSameOriginJson<Coupon[]>(
         `/api/coupons/available?sellerId=${encodeURIComponent(String(checkoutSellerId))}&orderTotal=${encodeURIComponent(
-          subtotal.toFixed(2),
+          couponSellerSubtotal.toFixed(2),
         )}`,
         { cache: "no-store" },
       ),
@@ -725,7 +751,7 @@ export default function CheckoutConnected() {
       body: JSON.stringify({
         code: persistedCoupon.code,
         sellerId: checkoutSellerId,
-        orderTotal: subtotal.toFixed(2),
+        orderTotal: couponSellerSubtotal.toFixed(2),
       }),
     })
       .then((data) => {
@@ -790,9 +816,9 @@ export default function CheckoutConnected() {
   const calculateCouponDiscount = () => {
     if (!appliedCoupon) return 0;
     if (appliedCoupon.discountType === "percentage") {
-      return (subtotal * parseFloat(appliedCoupon.discountValue)) / 100;
+      return (couponSellerSubtotal * parseFloat(appliedCoupon.discountValue)) / 100;
     } else {
-      return parseFloat(appliedCoupon.discountValue);
+      return Math.min(couponSellerSubtotal, parseFloat(appliedCoupon.discountValue));
     }
   };
 
@@ -815,7 +841,7 @@ export default function CheckoutConnected() {
       return;
     }
 
-    const sellerId = itemsWithProducts[0]?.product?.sellerId || user?.id;
+    const sellerId = checkoutSellerId;
     if (!sellerId) {
       toast({
         title: "Error",
@@ -828,7 +854,7 @@ export default function CheckoutConnected() {
     validateCouponMutation.mutate({
       code: couponCode.trim(),
       sellerId,
-      orderTotal: subtotal.toFixed(2),
+      orderTotal: couponSellerSubtotal.toFixed(2),
     });
   };
 
@@ -837,7 +863,7 @@ export default function CheckoutConnected() {
     validateCouponMutation.mutate({
       code: String(coupon.code || "").trim(),
       sellerId: checkoutSellerId ?? "",
-      orderTotal: subtotal.toFixed(2),
+      orderTotal: couponSellerSubtotal.toFixed(2),
     });
   };
 

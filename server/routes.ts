@@ -115,6 +115,7 @@ import { canonicalizeOrderStatus } from "./services/orderStateMachine";
 import { getRiderRiskScore, listRiderRiskScores, recordRiderRiskSignal } from "./services/riderRiskEngine";
 import { logSystemActivity } from "./observability";
 import { toPublicStore, toPublicStores, toAdminStoreView, resolveAdminStoreViewer } from "./publicStore";
+import { clearPurchasedCartItems } from "./cartCleanup";
 import { encryptField, decryptField, isEncrypted } from "./utils/sensitiveEncrypt";
 import {
   recordReferralSignup,
@@ -7113,8 +7114,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/cart/:id", requireAuth, async (req, res) => {
+  // Cart rows may only be changed by the buyer who owns them.
+  const ownsCartRow = async (userId: string, cartId: string) => {
+    const rows = await storage.getCart(userId);
+    return rows.some((row: any) => String(row.id) === String(cartId));
+  };
+
+  app.patch("/api/cart/:id", requireAuth, async (req: AuthRequest, res) => {
     try {
+      if (!(await ownsCartRow(req.user!.id, req.params.id))) {
+        return res.status(404).json({ error: "Cart item not found" });
+      }
       const { quantity } = req.body;
       const updated = await storage.updateCartItem(req.params.id, quantity);
       res.json(updated || { deleted: true });
@@ -7123,8 +7133,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/cart/:id", requireAuth, async (req, res) => {
+  app.delete("/api/cart/:id", requireAuth, async (req: AuthRequest, res) => {
     try {
+      if (!(await ownsCartRow(req.user!.id, req.params.id))) {
+        return res.json({ success: true });
+      }
       await storage.removeFromCart(req.params.id);
       res.json({ success: true });
     } catch (error: any) {
@@ -19659,8 +19672,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
         try {
           const cartOwnerId = currentUserId || existingTransaction.userId || null;
-          if (cartOwnerId && typeof storage.clearCart === "function") {
-            await storage.clearCart(cartOwnerId);
+          if (cartOwnerId) {
+            await clearPurchasedCartItems(storage as any, cartOwnerId, targetOrderIds);
           }
         } catch (cartCleanupError: any) {
           console.error("[VERIFY] Could not clear cart for completed transaction:", cartCleanupError?.message || cartCleanupError);
@@ -19876,8 +19889,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             })
           );
           try {
-            if (primaryOrder?.buyerId && typeof storage.clearCart === "function") {
-              await storage.clearCart(primaryOrder.buyerId);
+            if (primaryOrder?.buyerId) {
+              await clearPurchasedCartItems(storage as any, primaryOrder.buyerId, orders.map((o: any) => o?.id));
             }
           } catch (cartCleanupError: any) {
             console.error("[VERIFY] Could not clear cart after fallback payment success:", cartCleanupError?.message || cartCleanupError);

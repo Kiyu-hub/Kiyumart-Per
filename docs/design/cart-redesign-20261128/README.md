@@ -1,6 +1,6 @@
 # Cart page redesign — proposals A / B / C (phone only)
 
-Status: **proposal, awaiting owner + Design Director approval.** No app code changed. Desktop cart (`client/src/pages/Cart.tsx`) stays as is.
+Status: **A chosen by the owner (28 Nov 2026), with the owner's edits** (Select/Deselect all in the header, wishlist button and Paystack note removed). Built into `client/src/pages/mobile/MobileCart.tsx`. B and C kept for reference. Desktop cart (`client/src/pages/Cart.tsx`) stays as is.
 
 Canvas: https://claude.ai/artifact/8FH5HGmGChzqdGMLAyJgRe
 

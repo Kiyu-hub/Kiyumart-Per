@@ -40,6 +40,7 @@ interface Product {
   images: string[];
   category: string;
   stock: number;
+  sellerId?: string | null;
 }
 
 export default function Cart() {
@@ -151,6 +152,8 @@ export default function Cart() {
         product?.images?.[0] ||
         "",
       category: product?.category || "",
+      sellerId: product?.sellerId || null,
+      selectedImageIndex: cartItem.selectedImageIndex,
       variantId: cartItem.variantId,
       selectedColor: cartItem.selectedColor,
       selectedSize: cartItem.selectedSize,
@@ -191,6 +194,9 @@ export default function Cart() {
           selectedColor: item.selectedColor,
           selectedSize: item.selectedSize,
           availableStock: item.stock,
+          sellerId: item.sellerId,
+          variantId: item.variantId,
+          selectedImageIndex: item.selectedImageIndex,
         }))}
         isLoading={isLoading}
         onQuantityChange={(itemId, delta) => {
