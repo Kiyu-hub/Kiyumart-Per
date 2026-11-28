@@ -100,6 +100,23 @@ if (process.env.MOCK_CART === "1" || process.env.MOCK_CART === "empty") {
   app.get("/api/coupons/available", (q, r) => send(r, coupons.filter((c) => c.sellerId === q.query.sellerId && Number(q.query.orderTotal) >= Number(c.minimumPurchase))));
   app.post("/api/coupons/validate", (q, r) => { const c = coupons.find((x) => x.code === String(q.body.code).toUpperCase() && x.sellerId === q.body.sellerId); if (!c) return send(r, { valid: false, message: "Invalid coupon code" }); if (Number(q.body.orderTotal) < Number(c.minimumPurchase)) return send(r, { valid: false, message: "Minimum purchase of 500 required" }); send(r, { valid: true, coupon: c }); });
   settings.processingFeePercent = "1.95";
+  // Sample data for the profile pages.
+  const now = Date.now(), day = 86400000;
+  const mkOrder = (id, no, status, pid, total, ago) => { const p = products.find((x) => x.id === pid); return { id, orderNumber: no, status, paymentStatus: status === "pending" ? "pending" : "paid", totalAmount: total, createdAt: new Date(now - ago * day).toISOString(), deliveryMethod: "rider", items: [{ productId: pid, productName: p.name, quantity: 1, price: p.price, image: p.images[0] }], seller: { storeName: stores.find((st) => st.primarySellerId === p.sellerId)?.name || null } }; };
+  const sampleOrders = [mkOrder("o1","ORD-1764301234","processing","p1","571.06",1), mkOrder("o2","ORD-1763987710","in_transit","p3","703.72",4), mkOrder("o3","ORD-1763390025","delivered","p8","866.90",12), mkOrder("o4","ORD-1762871100","cancelled","p4","530.34",30)];
+  app.get("/api/orders", (_q, r) => send(r, sampleOrders));
+  app.get("/api/profile", (_q, r) => send(r, { ...buyer, phone: "+233 24 000 0000", businessAddress: "East Legon, Accra" }));
+  app.get("/api/notifications", (_q, r) => send(r, [
+    { id: "n1", type: "order_update", title: "Order packaged", message: "Your order #ORD-1764301234 has been packaged.", isRead: false, createdAt: new Date(now - 2 * 3600e3).toISOString(), metadata: {} },
+    { id: "n2", type: "delivery", title: "Delivery update", message: "We'll confirm the delivery cost with you before dispatch.", isRead: false, createdAt: new Date(now - 5 * 3600e3).toISOString(), metadata: {} },
+    { id: "n3", type: "message", title: "New message from Support", message: "We've replied to your ticket.", isRead: true, createdAt: new Date(now - day).toISOString(), metadata: {} },
+  ]));
+  app.get("/api/notifications/unread-count", (_q, r) => send(r, { count: 2 }));
+  app.get("/api/referral/stats", (_q, r) => send(r, { referralCode: "AMA2026", completed: 2, signedUp: 1, threshold: 5, rewardPercent: 5, rewardDurationHours: 48 }));
+  app.get("/api/suggestions/my", (_q, r) => send(r, [{ id: "s1", message: "Please add a size guide for children's clothes.", createdAt: new Date(now - 8 * day).toISOString(), reply: "Thanks! We're adding it next month.", repliedAt: new Date(now - 6 * day).toISOString() }, { id: "s2", message: "It would help to filter by shop in search.", createdAt: new Date(now - 25 * day).toISOString(), reply: null }]));
+  app.get("/api/support/conversations", (_q, r) => send(r, [{ id: "c1", subject: "Size exchange", lastMessage: "We've arranged the exchange for you.", status: "resolved", createdAt: new Date(now - 16 * day).toISOString(), updatedAt: new Date(now - 15 * day).toISOString(), customerId: buyer.id, customerName: buyer.name, customerEmail: buyer.email, agentId: null, agentName: null }]));
+  app.get("/api/support/staff", (_q, r) => send(r, []));
+  settings.referralEnabled = true;
 }
 
 app.get("/api/health", (_q, r) => send(r, { status: "ok", database: "mock" }));

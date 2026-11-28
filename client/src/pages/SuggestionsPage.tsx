@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
+import { SubpageShell, SubpageLabel, SubpagePrimary, subpageColors, useSubpageDark } from "@/components/mobile/MobileSubpage";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { fetchApiJson } from "@/lib/queryClient";
@@ -24,6 +26,8 @@ export default function SuggestionsPage() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [message, setMessage] = useState("");
+  const { isMobile } = useMobileDevice();
+  const isDarkSub = useSubpageDark();
 
   const { data: suggestions = [], isLoading } = useQuery<Suggestion[]>({
     queryKey: ["/api/suggestions/my"],
@@ -50,6 +54,55 @@ export default function SuggestionsPage() {
     if (!message.trim()) return;
     submitMutation.mutate(message.trim());
   };
+
+  // Phone: approved phone layout (desktop below is unchanged).
+  if (isMobile) {
+    const c = subpageColors(isDarkSub);
+    return (
+      <SubpageShell title="Suggestions" isDark={isDarkSub} testId="mobile-suggestions">
+        <p style={{ margin: "8px 24px 0", fontSize: 14, color: c.soft, lineHeight: 1.5 }}>Share ideas or feedback with the KiyuMart team.</p>
+        <div style={{ padding: "16px 24px 0" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 14, fontWeight: 600 }}>
+            Your suggestion
+            <textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Write your suggestion or feedback here…"
+              maxLength={1000}
+              style={{ height: 140, boxSizing: "border-box", border: `1px solid ${c.border}`, borderRadius: 12, padding: "12px 14px", fontSize: 16, resize: "none", color: c.ink, background: c.field, fontFamily: "inherit", outline: "none" }}
+            />
+            <span style={{ fontSize: 12, color: c.faint, fontWeight: 400, textAlign: "right" }}>{message.length} / 1000</span>
+          </label>
+        </div>
+        <SubpagePrimary onClick={handleSubmit} disabled={!message.trim() || submitMutation.isPending} top={12}>
+          {submitMutation.isPending ? "Sending…" : "Send suggestion"}
+        </SubpagePrimary>
+        <SubpageLabel isDark={isDarkSub}>Your previous suggestions</SubpageLabel>
+        <div style={{ padding: "0 24px" }}>
+          {isLoading ? (
+            <p style={{ color: c.soft, fontSize: 14, padding: "16px 0" }}>Loading…</p>
+          ) : suggestions.length === 0 ? (
+            <p style={{ color: c.soft, fontSize: 14, padding: "16px 0" }}>No suggestions yet. Be the first to share!</p>
+          ) : (
+            suggestions.map((sg, i) => (
+              <div key={sg.id} style={{ padding: "14px 0", borderBottom: i === suggestions.length - 1 ? "none" : `1px solid ${c.line}` }}>
+                <div style={{ fontSize: 15, lineHeight: 1.4, whiteSpace: "pre-wrap" }}>{sg.message}</div>
+                <div style={{ fontSize: 12, color: c.faint, marginTop: 6 }}>
+                  {formatDistanceToNow(new Date(sg.createdAt), { addSuffix: true })} · {sg.reply ? "Replied" : "Pending review"}
+                </div>
+                {sg.reply && (
+                  <div style={{ marginTop: 10, paddingLeft: 12, borderLeft: `2px solid ${c.border}` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: c.soft }}>KiyuMart team</div>
+                    <div style={{ fontSize: 14, marginTop: 2, lineHeight: 1.4 }}>{sg.reply}</div>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </SubpageShell>
+    );
+  }
 
   return (
     <DashboardLayout role={(user?.role as any) || "buyer"}>

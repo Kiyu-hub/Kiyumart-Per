@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useHaptic } from "@/hooks/useHaptic";
 import { useAuth } from "@/lib/auth";
+import { Bell, Check, CheckCheck, CreditCard, MessageSquare, Package, Star, Tag, Truck, User as UserIcon, type LucideIcon } from "lucide-react";
+import { SubpageShell, SubpageTabs, subpageColors, useSubpageDark, SUB_TEAL } from "@/components/mobile/MobileSubpage";
 
 const F      = '-apple-system,"SF Pro Text","SF Pro",system-ui,sans-serif';
 const TEAL   = '#009688';
@@ -491,158 +493,106 @@ function NotifRow({ notif, isDark, onPress, onRequestAction }: {
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
+// Plain-list icons (desktop lucide set, no coloured backgrounds).
+function plainIcon(type: string): LucideIcon {
+  const t = String(type || "").toLowerCase();
+  if (t.includes("deliver") || t.includes("rider") || t.includes("dispatch")) return Truck;
+  if (t.includes("order")) return Package;
+  if (t.includes("pay") || t.includes("payout") || t.includes("refund")) return CreditCard;
+  if (t.includes("message") || t.includes("support")) return MessageSquare;
+  if (t.includes("promo") || t.includes("coupon") || t.includes("product")) return Tag;
+  if (t.includes("review")) return Star;
+  if (t.includes("user") || t.includes("account")) return UserIcon;
+  return Bell;
+}
+
+/** Phone "Notifications" (approved 28 Nov 2026): All / New / Read, unread dot, mark all as read. */
 export function MobileNotifications({
   notifications, isLoading, onMarkRead, onMarkAllRead, onDelete,
 }: MobileNotificationsProps) {
-  const isDark = useTheme();
+  const isDark = useSubpageDark();
+  const c = subpageColors(isDark);
   const { user } = useAuth();
   const [, navigate] = useLocation();
   const { trigger: haptic } = useHaptic();
-  const [selectedNotif, setSelectedNotif]   = useState<Notification | null>(null);
-  const [pendingAction, setPendingAction]   = useState<{ type: 'delete' | 'read'; id: string } | null>(null);
-  const [activeTab, setActiveTab]           = useState<TabFilter>('all');
-
-  const bg    = isDark ? '#111111' : '#F2F2F7';
-  const hdr   = isDark ? '#111111' : '#F2F2F7';
-  const txt   = isDark ? '#FFFFFF' : '#111111';
-  const muted = isDark ? 'rgba(235,235,245,0.4)' : 'rgba(60,60,67,0.45)';
-  const bdr   = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)';
-  const skel  = isDark ? '#2C2C2E' : '#E5E5EA';
-  const card  = isDark ? '#1C1C1E' : '#FFFFFF';
-  const tabBg = isDark ? '#2C2C2E' : '#E5E5EA';
+  const [selectedNotif, setSelectedNotif] = useState<Notification | null>(null);
+  const [activeTab, setActiveTab] = useState<TabFilter>('all');
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
-
   const displayed = activeTab === 'new'
     ? notifications.filter(n => !n.isRead)
-    : activeTab === 'read'
-      ? notifications.filter(n => n.isRead)
-      : notifications;
+    : activeTab === 'read' ? notifications.filter(n => n.isRead) : notifications;
 
-  const grouped = groupByDate(displayed);
-
-  const TABS: { id: TabFilter; label: string; count?: number }[] = [
-    { id: 'all',  label: 'All',  count: notifications.length },
-    { id: 'new',  label: 'New',  count: unreadCount },
-    { id: 'read', label: 'Read', count: notifications.filter(n => n.isRead).length },
-  ];
+  const open = (n: Notification) => {
+    haptic('light');
+    if (!n.isRead) onMarkRead(n.id);
+    const target = resolveNotificationTarget(n, user?.role);
+    if (target) navigate(target);
+    else setSelectedNotif(n);
+  };
 
   return (
-    <div style={{ minHeight: '100dvh', background: bg, display: 'flex', flexDirection: 'column', fontFamily: F }}>
-
-      {/* Header */}
-      <div style={{
-        position: 'sticky', top: 0, zIndex: 20, background: hdr,
-        borderBottom: `1px solid ${bdr}`,
-        padding: '0 16px 10px',
-        paddingTop: 'max(14px, env(safe-area-inset-top, 14px))',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <p style={{ fontSize: 17, fontWeight: 700, color: txt }}>Notifications</p>
-            {unreadCount > 0 && (
-              <span style={{ minWidth: 22, height: 20, borderRadius: 10, background: TEAL, color: '#fff', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>
-                {unreadCount > 99 ? '99+' : unreadCount}
-              </span>
-            )}
-          </div>
-          {unreadCount > 0 && (
-            <button onClick={() => { haptic('light'); onMarkAllRead(); }} style={{
-              fontSize: 13, fontWeight: 600, color: TEAL, background: 'none', border: 'none',
-              cursor: 'pointer', fontFamily: F, WebkitTapHighlightColor: 'transparent',
-            }}>Mark all read</button>
-          )}
+    <SubpageShell
+      title="Notifications"
+      isDark={isDark}
+      testId="mobile-notifications"
+      right={unreadCount > 0 ? (
+        <button aria-label="Mark all as read" onClick={() => { haptic('light'); onMarkAllRead(); }} style={{ width: 44, height: 44, border: 0, background: 'transparent', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>
+          <CheckCheck size={22} strokeWidth={2} color={c.ink} aria-hidden="true" />
+        </button>
+      ) : undefined}
+    >
+      <SubpageTabs
+        isDark={isDark}
+        value={activeTab}
+        onChange={setActiveTab}
+        tabs={[
+          { key: 'all', label: 'All' },
+          { key: 'new', label: unreadCount > 0 ? `New (${unreadCount > 99 ? '99+' : unreadCount})` : 'New' },
+          { key: 'read', label: 'Read' },
+        ]}
+      />
+      {isLoading ? (
+        <div style={{ padding: '0 24px' }}>
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} style={{ display: 'flex', gap: 14, padding: '16px 0', borderBottom: `1px solid ${c.line}` }}>
+              <div style={{ width: 22, height: 22, borderRadius: 6, background: c.line }} />
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ height: 12, width: '55%', borderRadius: 4, background: c.line }} />
+                <div style={{ height: 10, width: '85%', borderRadius: 4, background: c.line }} />
+              </div>
+            </div>
+          ))}
         </div>
-
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 8 }}>
-          {TABS.map(tab => {
-            const active = activeTab === tab.id;
+      ) : displayed.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '72px 32px' }}>
+          <Bell size={40} strokeWidth={1.5} color={c.faint} aria-hidden="true" />
+          <div style={{ marginTop: 12, fontSize: 17, fontWeight: 700 }}>
+            {activeTab === 'new' ? 'No new notifications' : activeTab === 'read' ? 'No read notifications' : 'All caught up'}
+          </div>
+          <div style={{ marginTop: 6, fontSize: 14, color: c.soft }}>We'll notify you about orders, messages and more.</div>
+        </div>
+      ) : (
+        <div style={{ padding: '0 24px' }}>
+          {displayed.map((n, i) => {
+            const I = plainIcon(n.type);
             return (
-              <button
-                key={tab.id}
-                onClick={() => { haptic('light'); setActiveTab(tab.id); }}
-                style={{
-                  padding: '6px 14px', borderRadius: 8, border: 'none', cursor: 'pointer',
-                  fontFamily: F, fontSize: 13, fontWeight: 600,
-                  WebkitTapHighlightColor: 'transparent',
-                  background: active ? TEAL : tabBg,
-                  color: active ? '#fff' : muted,
-                  transition: 'background 0.15s, color 0.15s',
-                  display: 'flex', alignItems: 'center', gap: 5,
-                }}
-              >
-                {tab.label}
-                {tab.count != null && tab.count > 0 && (
-                  <span style={{
-                    minWidth: 18, height: 16, borderRadius: 8,
-                    background: active ? 'rgba(255,255,255,0.25)' : (isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'),
-                    color: active ? '#fff' : muted,
-                    fontSize: 10, fontWeight: 800,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
-                  }}>{tab.count > 99 ? '99+' : tab.count}</span>
-                )}
+              <button key={n.id} data-testid="notification-row" onClick={() => open(n)} style={{ width: '100%', display: 'flex', gap: 14, alignItems: 'flex-start', padding: '14px 0', border: 0, borderBottom: i === displayed.length - 1 ? 'none' : `1px solid ${c.line}`, background: 'transparent', textAlign: 'left', cursor: 'pointer', color: c.ink, fontFamily: F }}>
+                <I size={22} strokeWidth={1.75} color={c.ink} aria-hidden="true" style={{ flexShrink: 0, marginTop: 1 }} />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'block', fontSize: 15, fontWeight: n.isRead ? 500 : 700 }}>{n.title}</span>
+                  {n.message && <span style={{ display: 'block', fontSize: 14, color: c.soft, marginTop: 2, lineHeight: 1.4 }}>{n.message}</span>}
+                  <span style={{ display: 'block', fontSize: 12, color: c.faint, marginTop: 4 }}>{timeAgo(n.createdAt)}</span>
+                </span>
+                {n.isRead
+                  ? <span style={{ width: 8, flexShrink: 0 }} />
+                  : <span aria-label="Unread" style={{ width: 8, height: 8, borderRadius: 4, background: SUB_TEAL, flexShrink: 0, marginTop: 8 }} />}
               </button>
             );
           })}
         </div>
-      </div>
+      )}
 
-      {/* Content */}
-      <div style={{ flex: 1, padding: '12px 12px 0', paddingBottom: 'max(88px, calc(72px + env(safe-area-inset-bottom)))' }}>
-        {isLoading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[1,2,3,4].map(i => (
-              <div key={i} style={{ display: 'flex', gap: 12, padding: '13px 16px', background: card, borderRadius: 10, boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.07)' }}>
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: skel, flexShrink: 0 }} />
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 2 }}>
-                  <div style={{ height: 13, borderRadius: 4, background: skel, width: '60%' }} />
-                  <div style={{ height: 11, borderRadius: 4, background: skel, width: '85%' }} />
-                  <div style={{ height: 11, borderRadius: 4, background: skel, width: '45%' }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : displayed.length === 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 32px', textAlign: 'center' }}>
-            <div style={{ width: 72, height: 72, borderRadius: 18, background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14 }}>
-              <svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke={muted} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M6 8a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6z"/>
-                <path d="M10 18a2 2 0 0 0 4 0"/>
-              </svg>
-            </div>
-            <p style={{ fontSize: 16, fontWeight: 700, color: txt, marginBottom: 5 }}>
-              {activeTab === 'new' ? 'No new notifications' : activeTab === 'read' ? 'No read notifications' : 'All caught up'}
-            </p>
-            <p style={{ fontSize: 13, color: muted }}>
-              {activeTab === 'all' ? "We'll notify you about orders, offers, and more." : activeTab === 'new' ? 'Switch to "All" to see everything.' : ''}
-            </p>
-          </div>
-        ) : (
-          grouped.map(group => (
-            <div key={group.label} style={{ marginBottom: 4 }}>
-              <p style={{ fontSize: 11, fontWeight: 600, color: muted, textTransform: 'uppercase' as const, letterSpacing: 0.6, padding: '4px 4px 8px', fontFamily: F }}>
-                {group.label}
-              </p>
-              {group.items.map(n => (
-                <NotifRow
-                  key={n.id}
-                  notif={n}
-                  isDark={isDark}
-                  onPress={(notif) => {
-                    setSelectedNotif(notif);
-                    // auto mark as read when opened
-                    if (!notif.isRead) onMarkRead(notif.id);
-                  }}
-                  onRequestAction={(type) => setPendingAction({ type, id: n.id })}
-                />
-              ))}
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* Detail modal */}
       {selectedNotif && (
         <NotifDetailModal
           notif={selectedNotif}
@@ -654,20 +604,6 @@ export function MobileNotifications({
           onNavigate={(url) => { setSelectedNotif(null); navigate(url); }}
         />
       )}
-
-      {/* Swipe confirmation dialog */}
-      {pendingAction && (
-        <ConfirmDialog
-          type={pendingAction.type}
-          isDark={isDark}
-          onConfirm={() => {
-            if (pendingAction.type === 'delete') onDelete(pendingAction.id);
-            else onMarkRead(pendingAction.id);
-            setPendingAction(null);
-          }}
-          onCancel={() => setPendingAction(null)}
-        />
-      )}
-    </div>
+    </SubpageShell>
   );
 }

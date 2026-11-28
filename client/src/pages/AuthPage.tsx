@@ -301,10 +301,12 @@ function MobileAuth({
   isLoggingIn: boolean; isSigningUp: boolean; referralCode?: string;
   forceVerify?: boolean; forceVerifyEmail?: string; onVerified?: () => void;
 }) {
-  // "/auth?mode=signup" (e.g. from the guest profile's "Create account") opens the sign-up screen.
-  const [screen, setScreen] = useState<Screen>(() =>
-    typeof window !== "undefined" && new URLSearchParams(window.location.search).get("mode") === "signup" ? "signup" : "login",
-  );
+  // "/auth?mode=signup" (guest profile's "Create account") or "?mode=forgot" opens that screen.
+  const [screen, setScreen] = useState<Screen>(() => {
+    if (typeof window === "undefined") return "login";
+    const m = new URLSearchParams(window.location.search).get("mode");
+    return m === "signup" ? "signup" : m === "forgot" ? "forgot" : "login";
+  });
   const [verifyEmail, setVerifyEmail] = useState("");
   const [, navigate] = useLocation();
   const { toast } = useToast();

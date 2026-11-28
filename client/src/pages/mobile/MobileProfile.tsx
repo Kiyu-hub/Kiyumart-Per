@@ -7,6 +7,7 @@ import { useHaptic } from "@/hooks/useHaptic";
 import { useToast } from "@/hooks/use-toast";
 import UserAvatar from "@/components/UserAvatar";
 import { usePlatformSettings } from "@/hooks/usePlatformSettings";
+import { MobileSubpageHeader } from "@/components/mobile/MobileSubpage";
 import { User as UserIcon, Lock, Settings as SettingsIcon, ShoppingBag, Heart, Bell, Gift, Lightbulb, Headphones, Download, LogOut, Camera, ChevronRight, type LucideIcon } from "lucide-react";
 
 const F = '-apple-system,"SF Pro Text","SF Pro",system-ui,sans-serif';
@@ -180,6 +181,8 @@ export function MobileProfile() {
   const inp    = isDark ? '#2C2C2E' : '#EBEBF0';
 
   const { data: profile } = useQuery<any>({ queryKey: ['/api/auth/me'], enabled: !!user });
+  // Full profile (includes address) for Personal information.
+  const { data: fullProfile } = useQuery<any>({ queryKey: ['/api/profile'], enabled: !!user });
   const { data: orders = [] } = useQuery<any[]>({ queryKey: ['/api/orders'], enabled: !!user && user.role === 'buyer' });
   const { data: wishlist = [] } = useQuery<any[]>({ queryKey: ['/api/wishlist'], enabled: !!user && user.role === 'buyer' });
   const { data: notifCount = 0 } = useQuery<number>({
@@ -218,6 +221,7 @@ export function MobileProfile() {
   const [isEditing, setIsEditing]       = useState(false);
   const [editName, setEditName]         = useState('');
   const [editPhone, setEditPhone]       = useState('');
+  const [editAddress, setEditAddress]   = useState('');
   const [editImage, setEditImage]       = useState('');
   const [previewImg, setPreviewImg]     = useState('');
   const [isUploadingImg, setIsUploadingImg] = useState(false);
@@ -225,7 +229,8 @@ export function MobileProfile() {
 
   const openEdit = () => {
     setEditName(profile?.name || user?.name || '');
-    setEditPhone(profile?.phone || '');
+    setEditPhone(fullProfile?.phone || profile?.phone || '');
+    setEditAddress(fullProfile?.businessAddress || '');
     setEditImage(profile?.profileImage || '');
     setPreviewImg(profile?.profileImage || '');
     setIsEditing(true);
@@ -253,10 +258,10 @@ export function MobileProfile() {
     if (!editName.trim()) { toast({ title: 'Name is required', variant: 'destructive' }); return; }
     setIsSaving(true);
     try {
-      const body: Record<string, string> = { name: editName.trim() };
-      if (editPhone.trim()) body.phone = editPhone.trim();
+      const body: Record<string, string> = { name: editName.trim(), phone: editPhone.trim(), businessAddress: editAddress.trim() };
       if (editImage) body.profileImage = editImage;
-      const res = await fetch('/api/auth/profile', {
+      // Same endpoint the desktop profile uses (PATCH /api/profile).
+      const res = await fetch('/api/profile', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -264,6 +269,7 @@ export function MobileProfile() {
       });
       if (!res.ok) throw new Error('Save failed');
       await queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
+      await queryClient.invalidateQueries({ queryKey: ['/api/profile'] });
       toast({ title: 'Profile updated' });
       setIsEditing(false);
     } catch {
@@ -324,69 +330,51 @@ export function MobileProfile() {
     );
   }
 
-  // ── Edit screen ───────────────────────────────────────────────────────────────
+  // ── Personal information (approved 28 Nov 2026) ─────────────────────────────
   if (isEditing) {
+    const ink = isDark ? '#FFFFFF' : '#1A1A1A';
+    const soft = isDark ? 'rgba(235,235,245,0.6)' : '#8A8A8A';
+    const fieldBorder = isDark ? 'rgba(255,255,255,0.18)' : '#D6D6D6';
+    const fieldStyle = (readOnly = false) => ({ width: '100%', boxSizing: 'border-box' as const, height: 48, border: `1px solid ${fieldBorder}`, borderRadius: 12, padding: '0 14px', fontSize: 16, color: readOnly ? soft : ink, background: readOnly ? (isDark ? '#1C1C1E' : '#F7F7F7') : (isDark ? '#111111' : '#FFFFFF'), fontFamily: F, outline: 'none' });
+    const labelStyle = { display: 'flex', flexDirection: 'column' as const, gap: 6, fontSize: 14, fontWeight: 600, color: ink };
     return (
-      <div style={{ minHeight: '100dvh', background: bg, fontFamily: F }}>
-        {/* Header */}
-        <div style={{ position: 'sticky', top: 0, zIndex: 20, background: hdrBg, borderBottom: `1px solid ${bdr}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px 12px', paddingTop: 'max(14px, env(safe-area-inset-top, 14px))' }}>
-          <button onClick={() => setIsEditing(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, fontWeight: 500, color: muted, fontFamily: F }}>Cancel</button>
-          <span style={{ fontSize: 17, fontWeight: 700, color: txt }}>Edit Profile</span>
-          <button onClick={saveEdit} disabled={isSaving} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, fontWeight: 700, color: accent, fontFamily: F, opacity: isSaving ? 0.5 : 1 }}>
-            {isSaving ? 'Saving…' : 'Save'}
+      <div data-testid="profile-personal-info" style={{ minHeight: '100dvh', background: isDark ? '#111111' : '#FFFFFF', color: ink, fontFamily: F, paddingBottom: 40 }}>
+        <MobileSubpageHeader title="Personal information" onBack={() => setIsEditing(false)} isDark={isDark} />
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '16px 24px 4px' }}>
+          <button onClick={() => fileRef.current?.click()} aria-label="Change profile photo" style={{ position: 'relative', border: 0, padding: 0, background: 'none', cursor: 'pointer' }}>
+            <div style={{ width: 92, height: 92, borderRadius: 46, overflow: 'hidden', background: isDark ? '#2C2C2E' : '#F2F2F2' }}>
+              {previewImg ? <img src={previewImg} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <UserAvatar name={name} profileImage={avatar} size="lg" className="h-full w-full" />}
+            </div>
+            <span style={{ position: 'absolute', right: 0, bottom: 0, width: 32, height: 32, borderRadius: 16, border: `1px solid ${isDark ? 'rgba(255,255,255,0.15)' : '#E2E2E2'}`, background: isDark ? '#1C1C1E' : '#FFFFFF', display: 'grid', placeItems: 'center' }}>
+              {isUploadingImg
+                ? <span style={{ width: 12, height: 12, borderRadius: 6, border: '2px solid rgba(0,0,0,0.15)', borderTopColor: '#00796B', animation: 'spin 0.6s linear infinite' }} />
+                : <Camera size={16} strokeWidth={1.9} color={ink} aria-hidden="true" />}
+            </span>
+          </button>
+          <button onClick={() => fileRef.current?.click()} style={{ marginTop: 10, border: 0, background: 'transparent', color: isDark ? '#4DB6AC' : '#00796B', fontSize: 14, fontWeight: 600, padding: 8, cursor: 'pointer', fontFamily: F }}>Change photo</button>
+          <input ref={fileRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display: 'none' }} />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18, padding: '8px 24px 0' }}>
+          <label style={labelStyle}>Full name
+            <input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Your full name" autoComplete="name" style={fieldStyle()} />
+          </label>
+          <label style={labelStyle}>Email
+            <input value={email} readOnly style={fieldStyle(true)} />
+            <span style={{ fontSize: 12, color: soft, fontWeight: 400 }}>To change your email, contact Support.</span>
+          </label>
+          <label style={labelStyle}>Phone number
+            <input value={editPhone} onChange={e => setEditPhone(e.target.value)} placeholder="Your phone number" type="tel" autoComplete="tel" style={fieldStyle()} />
+          </label>
+          <label style={labelStyle}>Address / location
+            <input value={editAddress} onChange={e => setEditAddress(e.target.value)} placeholder="e.g. East Legon, Accra" autoComplete="street-address" style={fieldStyle()} />
+            <span style={{ fontSize: 12, color: soft, fontWeight: 400 }}>Used to fill in your delivery details at checkout.</span>
+          </label>
+        </div>
+        <div style={{ padding: '28px 24px 0' }}>
+          <button onClick={saveEdit} disabled={isSaving || isUploadingImg} style={{ width: '100%', height: 52, border: 0, borderRadius: 26, background: '#00796B', color: '#FFFFFF', fontSize: 16, fontWeight: 700, cursor: 'pointer', fontFamily: F, opacity: isSaving || isUploadingImg ? 0.6 : 1 }}>
+            {isSaving ? 'Saving…' : 'Save changes'}
           </button>
         </div>
-
-        <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 24 }}>
-          {/* Avatar picker */}
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-            <div style={{ position: 'relative', cursor: 'pointer' }} onClick={() => fileRef.current?.click()}>
-              <div style={{ width: 80, height: 80, borderRadius: 40, overflow: 'hidden', border: `2px solid ${bdr}` }}>
-                {previewImg ? (
-                  <img src={previewImg} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  <UserAvatar name={name} profileImage={avatar} size="lg" />
-                )}
-              </div>
-              <div style={{ position: 'absolute', bottom: 0, right: 0, width: 26, height: 26, borderRadius: 13, background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `2px solid ${bg}` }}>
-                {isUploadingImg
-                  ? <div style={{ width: 10, height: 10, borderRadius: 5, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', animation: 'spin 0.6s linear infinite' }} />
-                  : <Icon d={IC.camera} size={12} color="#fff" sw={2} />
-                }
-              </div>
-            </div>
-            <span style={{ fontSize: 13, color: muted }}>Tap to change photo</span>
-            <input ref={fileRef} type="file" accept="image/*" onChange={handleImagePick} style={{ display: 'none' }} />
-          </div>
-
-          {/* Name */}
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: muted, textTransform: 'uppercase' as const, letterSpacing: 0.5, display: 'block', marginBottom: 8 }}>Full Name</label>
-            <input
-              value={editName}
-              onChange={e => setEditName(e.target.value)}
-              placeholder="Your full name"
-              style={{ width: '100%', height: 48, background: card, border: `1.5px solid ${editName.trim() ? accent : bdr}`, borderRadius: 12, padding: '0 14px', fontSize: 15, color: txt, fontFamily: F, outline: 'none', boxSizing: 'border-box' as const }}
-            />
-          </div>
-
-          {/* Phone */}
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: muted, textTransform: 'uppercase' as const, letterSpacing: 0.5, display: 'block', marginBottom: 8 }}>Phone Number</label>
-            <input
-              value={editPhone}
-              onChange={e => setEditPhone(e.target.value)}
-              placeholder="Your phone number"
-              type="tel"
-              style={{ width: '100%', height: 48, background: card, border: `1.5px solid ${bdr}`, borderRadius: 12, padding: '0 14px', fontSize: 15, color: txt, fontFamily: F, outline: 'none', boxSizing: 'border-box' as const }}
-            />
-          </div>
-
-          <p style={{ fontSize: 12, color: muted, lineHeight: 1.5, marginTop: -8 }}>
-            To change your email or password, use the relevant options in the menu.
-          </p>
-        </div>
-
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );

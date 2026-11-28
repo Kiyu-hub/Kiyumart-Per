@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
+import { MobileSupport } from "@/pages/mobile/MobileSupport";
+import { MobileSubpageHeader, useSubpageDark } from "@/components/mobile/MobileSubpage";
 import { useLocation } from "wouter";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -122,6 +125,8 @@ export default function CustomerSupport() {
   const { toast } = useToast();
   const socket = useSocket();
   const [selectedConversation, setSelectedConversation] = useState<string | null>(null);
+  const { isMobile } = useMobileDevice();
+  const isDarkSub = useSubpageDark();
   const [message, setMessage] = useState("");
   const [newSupportSubject, setNewSupportSubject] = useState("");
   const [newSupportMessage, setNewSupportMessage] = useState("");
@@ -222,6 +227,8 @@ export default function CustomerSupport() {
 
   useEffect(() => {
     if (selectedConversation) return;
+    // Phone customers start on the tickets list (approved design), not inside a ticket.
+    if (isMobile && !isSupportStaff) return;
     const autoSelectableConversations = isSupportStaff
       ? conversations.filter((conversation) => conversation.status !== "resolved")
       : conversations;
@@ -1097,7 +1104,25 @@ export default function CustomerSupport() {
     );
   }
 
-  return (
+  // Phone (customers): approved tickets list + new ticket. Opening a ticket shows the conversation below.
+  if (isMobile && !isSupportStaff && !selectedConversation) {
+    const mobileHasOpenTicket = conversations.some((c) => {
+      const st = normalizeSupportStatus(c.status);
+      return st === "open" || st === "assigned";
+    });
+    return (
+      <MobileSupport
+        conversations={conversations}
+        isLoading={conversationsLoading}
+        hasOpenTicket={mobileHasOpenTicket}
+        isCreating={createTicketMutation.isPending}
+        onOpen={(id) => setSelectedConversation(id)}
+        onCreate={(subject, msg) => createTicketMutation.mutate({ subject, message: msg })}
+      />
+    );
+  }
+
+  const fullPage = (
     <DashboardLayout role={normalizedRole as any} showBackButton={false}>
       <div className="flex flex-col h-[calc(100vh-14px)] overflow-hidden">
         <div className="p-4 pb-0 md:p-6 md:pb-0 flex-shrink-0">
@@ -1804,4 +1829,15 @@ export default function CustomerSupport() {
 
     </DashboardLayout>
   );
+
+  // Phone customers inside a ticket: a back arrow to the tickets list.
+  if (isMobile && !isSupportStaff && selectedConversation) {
+    return (
+      <>
+        <MobileSubpageHeader title="Support" onBack={() => setSelectedConversation(null)} isDark={isDarkSub} />
+        {fullPage}
+      </>
+    );
+  }
+  return fullPage;
 }

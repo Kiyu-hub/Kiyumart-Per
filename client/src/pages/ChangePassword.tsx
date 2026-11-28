@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { Lock, ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
+import { MobileChangePassword } from "@/pages/mobile/MobileChangePassword";
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, "Current password is required"),
@@ -34,6 +36,7 @@ export default function ChangePassword() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { isMobile } = useMobileDevice();
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -92,6 +95,9 @@ export default function ChangePassword() {
   if (authLoading || !isAuthenticated) {
     return null;
   }
+
+  // Phone: approved phone layout (desktop below is unchanged).
+  if (isMobile) return <MobileChangePassword />;
 
   const onSubmit = (data: ChangePasswordForm) => {
     changePasswordMutation.mutate(data);

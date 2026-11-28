@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useIsDark, toggleTheme as toggleAppTheme } from "@/lib/theme";
+import { useMobileDevice } from "@/hooks/useMobileDevice";
+import { MobileSettings } from "@/pages/mobile/MobileSettings";
 import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { fetchSameOrigin, fetchSameOriginJson } from "@/lib/queryClient";
@@ -40,6 +42,7 @@ export default function Settings() {
   const { user } = useAuth();
   const { toast } = useToast();
   const theme: "light" | "dark" = useIsDark() ? "dark" : "light";
+  const { isMobile } = useMobileDevice();
   const [isExporting, setIsExporting] = useState(false);
   const [isPreparingPdf, setIsPreparingPdf] = useState(false);
   
@@ -684,6 +687,22 @@ export default function Settings() {
       setIsPreparingPdf(false);
     }
   };
+
+  // Phone: approved phone layout (desktop below is unchanged).
+  if (isMobile) {
+    return (
+      <MobileSettings
+        emailNotifications={emailNotifications} setEmailNotifications={setEmailNotifications}
+        pushNotifications={pushNotifications} setPushNotifications={setPushNotifications}
+        orderUpdates={orderUpdates} setOrderUpdates={setOrderUpdates}
+        promotionalEmails={promotionalEmails} setPromotionalEmails={setPromotionalEmails}
+        isDarkTheme={theme === "dark"} toggleTheme={toggleTheme}
+        onSave={handleSavePreferences}
+        onAccountReport={handleDownloadPdf} isPreparingPdf={isPreparingPdf}
+        onDownloadData={handleDownloadData} isExporting={isExporting}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
