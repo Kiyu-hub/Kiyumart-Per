@@ -67,10 +67,10 @@ class Component extends DCLogic {
       filter: "all",
       added: [],
       items: [
-        { id: "a", name: "Demo – Burgundy Velvet Abaya with Pearls", shop: "demo seller's Store", price: 560, was: 690, stock: 3, dropped: false, img: "/_blob/4be356f44cd9b83e012d567a42e4971b" },
-        { id: "b", name: "Demo – Structured Leather Handbag", shop: "demo seller's Store", price: 690, was: 850, stock: 8, dropped: true, img: "/_blob/b3f89ebe4df0ae04e361c5908830a3a5" },
-        { id: "c", name: "Demo – Men's Leather Jacket", shop: "demo seller's Store", price: 850, was: 1050, stock: 2, dropped: false, img: "/_blob/829983302ec7e160c6baa9201f5bd467" },
-        { id: "d", name: "Demo – Emerald Satin Evening Dress", shop: "demo seller's Store", price: 520, was: 650, stock: 0, dropped: false, img: "/_blob/005e8f8398dc24934d69c4048709ee13" }
+        { id: "a", name: "Demo – Burgundy Velvet Abaya with Pearls", shop: "demo seller's Store", price: 560, was: 690, stock: 3, img: "/_blob/e59dbdb91e7eaf1263cb252b6f149ea8" },
+        { id: "b", name: "Demo – Structured Leather Handbag", shop: "demo seller's Store", price: 690, was: 850, stock: 8, img: "/_blob/cd300f5dcd562494e75f866e46fb7664" },
+        { id: "c", name: "Demo – Men's Leather Jacket", shop: "demo seller's Store", price: 850, was: 1050, stock: 2, img: "/_blob/1b3b31e3246330fc38096bcdbaa2b0b1" },
+        { id: "d", name: "Demo – Emerald Satin Evening Dress", shop: "demo seller's Store", price: 520, was: 650, stock: 0, img: "/_blob/335d572cbb8c6ffc1267520ab3f1bc3d" }
       ]
     };
   }
@@ -78,8 +78,8 @@ class Component extends DCLogic {
     const money = (n) => "GH₵" + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
     const all = this.state.items;
     const f = this.state.filter;
-    const shown = all.filter((i) => f === "all" || (f === "dropped" && i.dropped) || (f === "instock" && i.stock > 0));
-    const defs = [["all", "All (" + all.length + ")"], ["dropped", "Price dropped"], ["instock", "In stock"]];
+    const shown = all.filter((i) => f === "all" || (f === "instock" && i.stock > 0));
+    const defs = [["all", "All (" + all.length + ")"], ["instock", "In stock"]];
     return {
       countLabel: all.length + (all.length === 1 ? " saved item" : " saved items"),
       filters: defs.map(([k, label]) => ({
@@ -95,9 +95,10 @@ class Component extends DCLogic {
           ...i,
           priceLabel: money(i.price), wasLabel: money(i.was), hasWas: i.was > i.price,
           soldOut, inStock: !soldOut,
-          hasBadge: true,
-          badge: soldOut ? "Sold out" : i.dropped ? "Price dropped" : "−" + off + "%",
-          badgeStyle: "position: absolute; top: 8px; left: 8px; font-size: 11px; font-weight: 800; color: #FFFFFF; border-radius: 8px; padding: 3px 7px; background: " + (soldOut ? "#3C4043" : i.dropped ? "#B45309" : "#00796B"),
+          hasBadge: soldOut || off > 0,
+          badge: soldOut ? "Sold out" : off + "% OFF",
+          // Same badge as the app's product cards: red "% OFF"; dark grey "Sold out".
+          badgeStyle: "position: absolute; top: 8px; left: 8px; font-size: 10px; font-weight: 800; letter-spacing: 0.2px; color: #FFFFFF; border-radius: 6px; padding: 3px 7px; background: " + (soldOut ? "#3C4043" : "#EF4444"),
           imgStyle: "width: 100%; aspect-ratio: 4 / 5; object-fit: cover; display: block; background: #F5F5F7" + (soldOut ? "; filter: grayscale(1); opacity: 0.6" : ""),
           btnLabel: added ? "Added ✓" : "Add to cart",
           btnStyle: "margin-top: 6px; height: 36px; border: 0; border-radius: 18px; font-size: 13px; font-weight: 800; cursor: pointer; " + (added ? "background: #E0F2F1; color: #00695C" : "background: #00796B; color: #FFFFFF"),

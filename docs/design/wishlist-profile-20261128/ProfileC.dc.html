@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Profile — option C, plain summary</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>body{margin:0}button{font-family:inherit}</style></helmet>
+<div style="width: 390px; min-height: 900px; position: relative; box-sizing: border-box; background: #F7F7F7; color: #111111; font-family: -apple-system, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif; padding-bottom: 96px">
+  <div style="padding: 20px 16px 12px; font-size: 28px; font-weight: 800">Profile</div>
+
+  <section style="margin: 0 16px; background: #FFFFFF; border: 1px solid #EAEAEA; border-radius: 16px; padding: 16px">
+    <div style="display: flex; align-items: center; gap: 14px">
+      <div style="width: 56px; height: 56px; border-radius: 28px; background: #F0F0F0; color: #444444; display: grid; place-items: center; font-size: 19px; font-weight: 700; flex-shrink: 0">AM</div>
+      <div style="flex: 1; min-width: 0">
+        <div style="font-size: 17px; font-weight: 700">Ama Mensah</div>
+        <div style="font-size: 13px; color: #6B6B6B">ama@example.com · Buyer account</div>
+      </div>
+      <button style="height: 36px; padding: 0 14px; border: 1px solid #DADADA; border-radius: 10px; background: #FFFFFF; font-size: 13px; font-weight: 600; color: #111111; cursor: pointer">Edit</button>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 14px; border-top: 1px solid #EFEFEF">
+      <button style="border: 0; border-right: 1px solid #EFEFEF; background: #FFFFFF; padding: 12px 0 0; cursor: pointer; color: #111111"><div style="font-size: 18px; font-weight: 800">3</div><div style="font-size: 12px; color: #6B6B6B">Orders</div></button>
+      <button style="border: 0; background: #FFFFFF; padding: 12px 0 0; cursor: pointer; color: #111111"><div style="font-size: 18px; font-weight: 800">4</div><div style="font-size: 12px; color: #6B6B6B">Wishlist</div></button>
+    </div>
+  </section>
+
+  <div style="display: flex; align-items: center; justify-content: space-between; padding: 20px 16px 8px">
+    <div style="font-size: 15px; font-weight: 700">Recent orders</div>
+    <button style="border: 0; background: none; font-size: 13px; font-weight: 600; color: #111111; text-decoration: underline; padding: 8px 0; cursor: pointer">View all</button>
+  </div>
+  <section style="margin: 0 16px; background: #FFFFFF; border: 1px solid #EAEAEA; border-radius: 16px; overflow: hidden">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #F0F0F0">
+      <div style="flex: 1"><div style="font-size: 14px; font-weight: 700">Order #ORD-1764301234</div><div style="font-size: 12px; color: #6B6B6B">26 Nov 2026 · Packaged</div></div>
+      <button style="height: 34px; padding: 0 12px; border: 1px solid #DADADA; border-radius: 8px; background: #FFFFFF; font-size: 13px; font-weight: 600; color: #111111; cursor: pointer">View Details</button>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px; padding: 12px 14px">
+      <div style="flex: 1"><div style="font-size: 14px; font-weight: 700">Order #ORD-1763987710</div><div style="font-size: 12px; color: #6B6B6B">18 Nov 2026 · Delivered</div></div>
+      <button style="height: 34px; padding: 0 12px; border: 1px solid #DADADA; border-radius: 8px; background: #FFFFFF; font-size: 13px; font-weight: 600; color: #111111; cursor: pointer">View Details</button>
+    </div>
+  </section>
+
+  <div style="padding: 20px 16px 8px; font-size: 15px; font-weight: 700">Account</div>
+  <section style="margin: 0 16px; background: #FFFFFF; border: 1px solid #EAEAEA; border-radius: 16px; overflow: hidden">
+    <button style="width: 100%; display: flex; align-items: center; height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F0; background: #FFFFFF; font-size: 15px; color: #111111; text-align: left; cursor: pointer"><span style="flex: 1">Settings</span><span style="color: #9A9A9A">›</span></button>
+    <button style="width: 100%; display: flex; align-items: center; height: 52px; padding: 0 14px; border: 0; border-bottom: 1px solid #F0F0F0; background: #FFFFFF; font-size: 15px; color: #111111; text-align: left; cursor: pointer"><span style="flex: 1">Change password</span><span style="color: #9A9A9A">›</span></button>
+    <button style="width: 100%; display: flex; align-items: center; height: 52px; padding: 0 14px; border: 0; background: #FFFFFF; font-size: 15px; color: #111111; text-align: left; cursor: pointer"><span style="flex: 1">Help &amp; support</span><span style="color: #9A9A9A">›</span></button>
+  </section>
+
+  <div style="padding: 20px 16px 0">
+    <button style="width: 100%; height: 48px; border: 1px solid #DADADA; border-radius: 12px; background: #FFFFFF; font-size: 15px; font-weight: 600; color: #111111; cursor: pointer">Logout</button>
+  </div>
+
+  <nav style="position: absolute; left: 0; right: 0; bottom: 0; height: 76px; background: #FFFFFF; border-top: 1px solid #EAEAEA; display: flex; align-items: flex-start; justify-content: space-around; padding-top: 10px; font-size: 11px; color: #8A8A8A">
+    <span>Home</span><span>Cart</span><span>Become a Seller</span><span>Wishlist</span><span style="font-weight: 700; color: #111111">Profile</span>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

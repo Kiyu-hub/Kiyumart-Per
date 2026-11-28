@@ -1,13 +1,19 @@
-# Wishlist & Profile — simple redesign (phone), proposal
+# Wishlist & Profile — redesign (phone)
 
-Status: proposal, awaiting owner approval. No app code changed. Desktop unchanged.
 Canvas: https://claude.ai/artifact/Emx5XWph9eAJdJFyvVZzfD (its own canvas; the cart canvas is unchanged)
 
-Wishlist: same look as the approved cart (A); shop name on each card; price uses the checkout rule
-(fixes the current full-price bug); Add to cart; "Price dropped" / "Sold out" labels; filters
-(All / Price dropped / In stock); sold-out items offer "Find similar".
-Empty wishlist: heart card + Start shopping, then "Popular right now" with save hearts.
+## Wishlist — APPROVED by the owner (28 Nov 2026), loaded + empty
+- Same look as the approved cart (A). Shop name on each card; price uses the checkout rule
+  (fixes the current full-price bug); Add to cart; sold-out items greyed with "Find similar".
+- Discount badge = the app's product-card badge: red #EF4444, white "NN% OFF". Sold out: dark grey.
+- No "price dropped" label or filter (owner: nothing that isn't a real feature). Filters: All / In stock.
+- Empty: heart card + Start shopping, then "Popular right now" (with % OFF badges and save hearts).
 
-Profile (buyer): identity card with Edit; Orders / Active / Wishlist tiles; active-order card with
-progress (Processing → Packaged → On the way → Delivered) and Track order; referral card with Copy link;
-grouped menu (Shopping, Account, Support) using only existing features; Sign out.
+## Profile — three plain (monochrome) options, awaiting the owner's pick
+Built from the desktop profile (Profile.tsx): name, email, "{role} Account", Settings + Logout,
+Profile · Orders · Settings (Personal Information form; Order History "Order #… / View Details";
+Change Password, Email Notifications).
+- A: plain list.
+- B: desktop tabs (interactive), closest to desktop.
+- C: plain summary (Orders/Wishlist counts, recent orders, account rows).
+Desktop pages unchanged.
