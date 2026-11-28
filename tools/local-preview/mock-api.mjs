@@ -93,7 +93,9 @@ if (process.env.MOCK_CART === "1" || process.env.MOCK_CART === "empty") {
   app.delete("/api/cart/:id", (q, r) => { cartRows = cartRows.filter((c) => c.id !== q.params.id); send(r, { success: true }); });
   app.post("/api/cart", (q, r) => { const id = `ci${Date.now()}`; cartRows.push({ id, quantity: 1, availableStock: 5, ...q.body }); send(r, { id }); });
   app.post("/api/wishlist", (_q, r) => send(r, { ok: true }));
-  app.get("/api/wishlist", (_q, r) => send(r, []));
+  let wishRows = process.env.MOCK_CART === "empty" ? [] : ["p2", "p5", "p6", "p7"].map((pid, i) => ({ id: `w${i}`, userId: buyer.id, productId: pid, createdAt: new Date().toISOString() }));
+  app.get("/api/wishlist", (_q, r) => send(r, wishRows.filter((w) => products.some((p) => p.id === w.productId))));
+  app.delete("/api/wishlist/:pid", (q, r) => { wishRows = wishRows.filter((w) => w.productId !== q.params.pid); send(r, { ok: true }); });
   app.get("/api/stores/by-seller/:sid", (q, r) => { const s = stores.find((x) => x.primarySellerId === q.params.sid); s ? send(r, { ...s, verificationStatus: s.id === "st1" ? "verified" : s.verificationStatus }) : r.status(404).json({ error: "Store not found" }); });
   app.get("/api/coupons/available", (q, r) => send(r, coupons.filter((c) => c.sellerId === q.query.sellerId && Number(q.query.orderTotal) >= Number(c.minimumPurchase))));
   app.post("/api/coupons/validate", (q, r) => { const c = coupons.find((x) => x.code === String(q.body.code).toUpperCase() && x.sellerId === q.body.sellerId); if (!c) return send(r, { valid: false, message: "Invalid coupon code" }); if (Number(q.body.orderTotal) < Number(c.minimumPurchase)) return send(r, { valid: false, message: "Minimum purchase of 500 required" }); send(r, { valid: true, coupon: c }); });
