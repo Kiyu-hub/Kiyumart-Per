@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useHaptic } from "@/hooks/useHaptic";
+import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { fetchSameOriginJson } from "@/lib/queryClient";
@@ -19,7 +20,7 @@ import { couponDiscountFor, resolveProcessingFeePercent, summarizeCart } from "@
 
 /*
  * Phone cart — design "A" (approved 28 Nov 2026, docs/design/cart-redesign-20261128).
- * Items grouped by shop, tick to choose what to check out, one delivery location, one-tap shop coupons
+ * Items grouped by shop, tick to choose what to check out, delivery confirmed after checkout, one-tap shop coupons
  * (one per shop; each reduces only that shop's items), Paystack charges
  * shown and passed to the buyer exactly as checkout and the server compute them.
  * Desktop cart (Cart.tsx) is unchanged.
@@ -124,6 +125,13 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
   const { trigger: haptic } = useHaptic();
   const isDark = useTheme();
   const userId = user?.id ? String(user.id) : null;
+  // Same delivery wording as the desktop cart/checkout: with external delivery the
+  // cost depends on the address and the shops, and is confirmed after checkout.
+  const { isExternalRiderSystemEnabled } = usePlatformSettings();
+  const deliveryValue = isExternalRiderSystemEnabled ? "Confirmed after checkout" : "Calculated at checkout";
+  const deliveryNote = isExternalRiderSystemEnabled
+    ? "Delivery cost depends on your address and the shops. We confirm it with you before dispatch."
+    : "Delivery fee is calculated at checkout from your address.";
 
   const t = {
     accent: "#009688",
@@ -421,7 +429,7 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
         <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke={t.accent} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z" /><circle cx="12" cy="10" r="2.5" /></svg>
         <span style={{ flex: 1, fontSize: 14 }}>
           <b>Deliver to:</b> <span style={{ color: t.link, fontWeight: 600 }}>Add your location</span>
-          <br /><span style={{ fontSize: 12, color: t.muted }}>once, for your whole order</span>
+          <br /><span style={{ fontSize: 12, color: t.muted }}>{deliveryNote}</span>
         </span>
         <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={t.muted} strokeWidth={2} strokeLinecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
       </button>
@@ -432,7 +440,7 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
             <Tick on={allSelected} accent={t.accent} ring={t.ring} />
             Select all
           </button>
-          <span style={{ fontSize: 12, color: t.muted }}>One delivery fee for your order</span>
+          <span style={{ fontSize: 12, color: t.muted }}>Delivered from each shop</span>
         </div>
       )}
 
@@ -601,7 +609,7 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
           <div style={{ display: "flex", flexDirection: "column", gap: 9, fontSize: 14 }}>
             <div style={row}><span style={{ color: t.muted }}>Items ({sum.itemCount})</span><span>{money(sum.itemsOriginal)}</span></div>
             <div style={row}><span style={{ color: t.muted }}>Discounts</span><span style={{ color: t.link, fontWeight: 700 }}>− {money(sum.discounts)}</span></div>
-            <div style={row}><span style={{ color: t.muted }}>Delivery</span><span style={{ color: t.muted }}>After location</span></div>
+            <div style={row}><span style={{ color: t.muted }}>Delivery</span><span style={{ color: t.muted }}>{deliveryValue}</span></div>
             <div style={row}>
               <span style={{ color: t.muted }}>Shop coupons</span>
               {sum.coupon > 0 ? <span style={{ color: t.link, fontWeight: 700 }}>− {money(sum.coupon)}</span> : <span>—</span>}

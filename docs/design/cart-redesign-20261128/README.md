@@ -22,3 +22,4 @@ Prices use the checkout rule (price × (1 − discount%)).
 Wording: "delivery" throughout, never "shipping".
 
 Update 28 Nov (owner): one delivery location for the whole order (per-shop delivery lines removed); "Save" / "Saved for later" removed from the cart.
+Update 28 Nov (owner): no "one delivery fee" wording. Delivery depends on the address and the shops and is confirmed after checkout (same as desktop checkout); "Calculated at checkout" when internal riders are on.
