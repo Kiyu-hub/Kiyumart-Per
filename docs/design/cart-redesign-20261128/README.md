@@ -30,3 +30,8 @@ Update 28 Nov (owner): no "one delivery fee" wording. Delivery depends on the ad
 - External delivery (current): nothing charged in the app; each shop shows "Delivery: confirmed after checkout".
 - Own riders: the server works out the fee from the buyer's delivery zone (+ platform delivery commission) for each shop and ignores any fee sent by the browser. Checkout shows "Delivery (N shops)".
 - Shop coupons apply only to the issuing shop's items; other shops are unaffected.
+
+### Deferred until the platform's own riders are running (owner agreed 28 Nov 2026)
+1. Cheaper delivery for a second shop in the same area.
+2. Shops offering free delivery (shop pays its share).
+3. In-app "pay delivery" step for externally arranged delivery.
