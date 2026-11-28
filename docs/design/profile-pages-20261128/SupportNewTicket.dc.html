@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Support — new ticket</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>body{margin:0}button,input,textarea{font-family:inherit}</style></helmet>
+<div style="width: 390px; min-height: 844px; position: relative; box-sizing: border-box; background: #FFFFFF; color: #1A1A1A; font-family: -apple-system, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif; padding-bottom: 40px">
+  <header style="display: flex; align-items: center; height: 56px; padding: 8px 8px 0">
+    <button aria-label="Back" style="width: 44px; height: 44px; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+    <div style="flex: 1; text-align: center; font-size: 17px; font-weight: 700">New ticket</div>
+    <div style="width: 44px; display: grid; place-items: center"></div>
+  </header>
+  <div style="display: flex; flex-direction: column; gap: 18px; padding: 16px 24px 0">
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; color: #1A1A1A">Subject
+      <span style="position: relative; display: block"><input type="text" placeholder="What do you need help with?" style="width: 100%; box-sizing: border-box; height: 48px; border: 1px solid #D6D6D6; border-radius: 12px; padding: 0 14px 0 14px; font-size: 16px; color: #1A1A1A; background: #FFFFFF; font-family: inherit"/></span>
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600">Order (optional)
+      <span style="display: flex; align-items: center; height: 48px; border: 1px solid #D6D6D6; border-radius: 12px; padding: 0 14px; font-size: 16px; font-weight: 400; color: #6B6B6B"><span style="flex: 1">Choose an order</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8A8A8A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></span></label>
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600">Message
+      <textarea placeholder="Tell us what happened…" style="height: 160px; box-sizing: border-box; border: 1px solid #D6D6D6; border-radius: 12px; padding: 12px 14px; font-size: 16px; resize: none; color: #1A1A1A"></textarea></label>
+    <button style="align-self: flex-start; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px; border: 1px solid #D6D6D6; border-radius: 20px; background: #FFFFFF; font-size: 14px; font-weight: 600; color: #1A1A1A; cursor: pointer"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>Add a photo</button>
+  </div>
+<div style="padding: 24px 24px 0"><button style="width: 100%; height: 52px; border: 0; border-radius: 26px; background: #00796B; color: #FFFFFF; font-size: 16px; font-weight: 700; cursor: pointer">Send</button></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
