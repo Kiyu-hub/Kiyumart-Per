@@ -131,7 +131,29 @@ const productionOrigins = new Set(
 // Gzip compress all responses — reduces payload size 60-80%
 app.use(compression());
 
-app.use(cors({
+// A page served by this server (e.g. the app opened at kiyumart-api.onrender.com)
+// is same-origin. Browsers still send an Origin header for module scripts
+// (<script type="module" crossorigin>), so those must be accepted or the whole
+// app loads blank.
+const isSameOriginRequest = (req: Request, origin: string) => {
+  try {
+    // Host only (browsers set it and pages cannot forge it); X-Forwarded-Host is not trusted here.
+    const host = String(req.headers.host || "").trim().toLowerCase();
+    return !!host && new URL(origin).host.toLowerCase() === host;
+  } catch {
+    return false;
+  }
+};
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && isSameOriginRequest(req, origin)) {
+    res.locals.sameOriginCors = true;
+    return cors({ origin: true, credentials: true })(req, res, next);
+  }
+  return next();
+});
+
+const crossOriginCors = cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
@@ -158,7 +180,8 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Cookie'],
-}));
+});
+app.use((req, res, next) => (res.locals.sameOriginCors ? next() : crossOriginCors(req, res, next)));
 
 // Configure Helmet for security headers
 app.use(helmet({
