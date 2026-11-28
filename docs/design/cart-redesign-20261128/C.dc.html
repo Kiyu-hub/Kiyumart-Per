@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>KiyuMart cart — C (bold app)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>body{margin:0}button{font-family:inherit}</style>
+</helmet>
+<div style="width: 390px; min-height: 1800px; position: relative; box-sizing: border-box; background: #EEF3F2; color: #0D1F1C; font-family: -apple-system, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif; padding-bottom: 120px">
+
+  <div style="background: linear-gradient(160deg, #00897B 0%, #00695C 100%); color: #FFFFFF; padding: 14px 16px 54px; border-radius: 0 0 28px 28px">
+    <div style="display: flex; align-items: center; gap: 8px">
+      <button aria-label="Back" style="width: 44px; height: 44px; border: 0; border-radius: 22px; background: rgba(255,255,255,0.16); display: grid; place-items: center; cursor: pointer">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <div style="flex: 1; font-size: 18px; font-weight: 800">Cart</div>
+      <button onClick="{{toggleAll}}" style="height: 36px; padding: 0 14px; border: 0; border-radius: 18px; background: rgba(255,255,255,0.16); color: #FFFFFF; font-size: 12px; font-weight: 700; cursor: pointer">
+        <sc-if value="{{allSelected}}" hint-placeholder-val="{{ true }}">Deselect all</sc-if>
+        <sc-if value="{{notAllSelected}}" hint-placeholder-val="{{ false }}">Select all</sc-if>
+      </button>
+    </div>
+    <div style="display: flex; align-items: center; gap: 6px; margin-top: 16px; font-size: 11px; font-weight: 700">
+      <span style="padding: 5px 10px; border-radius: 999px; background: #FFFFFF; color: #00695C">1 Cart</span>
+      <span style="flex: 1; height: 2px; background: rgba(255,255,255,0.35)"></span>
+      <span style="padding: 5px 10px; border-radius: 999px; background: rgba(255,255,255,0.16)">2 Delivery</span>
+      <span style="flex: 1; height: 2px; background: rgba(255,255,255,0.35)"></span>
+      <span style="padding: 5px 10px; border-radius: 999px; background: rgba(255,255,255,0.16)">3 Pay</span>
+    </div>
+    <div style="margin-top: 18px; font-size: 13px; opacity: 0.85">{{itemCountLabel}} · {{shopCountLabel}}</div>
+    <div style="font-size: 32px; font-weight: 800; letter-spacing: -0.6px">{{totalLabel}}</div>
+    <div style="display: inline-block; margin-top: 6px; padding: 4px 10px; border-radius: 999px; background: #00BFA5; color: #00332D; font-size: 12px; font-weight: 800">You save {{savingsLabel}}</div>
+  </div>
+
+  <button style="margin: -34px 16px 0; width: calc(100% - 32px); position: relative; display: flex; align-items: center; gap: 12px; padding: 14px; border: 0; border-radius: 18px; background: #FFFFFF; box-shadow: 0 8px 24px rgba(0,77,64,0.14); text-align: left; cursor: pointer; color: #0D1F1C">
+    <span style="width: 40px; height: 40px; border-radius: 12px; background: #E0F2F1; display: grid; place-items: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
+    <span style="flex: 1; font-size: 13px; line-height: 1.35"><b style="font-size: 14px">Where should we deliver?</b><br><span style="color: #5F6B69">Each shop delivers separately — add a location to see fees</span></span>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5F6B69" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+  </button>
+
+  <sc-for list="{{shops}}" as="shop" hint-placeholder-count="2">
+    <section style="margin: 16px 16px 0">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 0 4px 10px">
+        <img src="{{shop.logo}}" alt="" style="width: 30px; height: 30px; border-radius: 10px; object-fit: cover">
+        <div style="flex: 1; font-size: 15px; font-weight: 800">{{shop.name}}</div>
+        <sc-if value="{{shop.verified}}" hint-placeholder-val="{{ true }}"><span style="font-size: 11px; font-weight: 800; color: #00695C; background: #D7F0EC; border-radius: 8px; padding: 4px 8px">Verified</span></sc-if>
+      </div>
+
+      <div style="background: #FFFFFF; border-radius: 20px; padding: 6px 12px">
+        <sc-for list="{{shop.items}}" as="item" hint-placeholder-count="2">
+          <div style="display: flex; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid #EEF1F0">
+            <button onClick="{{item.toggle}}" aria-label="Select {{item.name}}" style="position: relative; flex-shrink: 0; width: 76px; height: 92px; border: 0; padding: 0; background: none; cursor: pointer">
+              <img src="{{item.img}}" alt="{{item.name}}" style="width: 76px; height: 92px; border-radius: 16px; object-fit: cover; display: block">
+              <sc-if value="{{item.selected}}" hint-placeholder-val="{{ true }}"><span style="position: absolute; top: -4px; right: -4px; width: 24px; height: 24px; border-radius: 12px; background: #00897B; border: 2px solid #fff; display: grid; place-items: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span></sc-if>
+              <sc-if value="{{item.unselected}}" hint-placeholder-val="{{ false }}"><span style="position: absolute; inset: 0; border-radius: 16px; background: rgba(255,255,255,0.55)"></span><span style="position: absolute; top: -4px; right: -4px; width: 24px; height: 24px; border-radius: 12px; background: #fff; border: 2px solid #9AA6A4; box-sizing: border-box"></span></sc-if>
+            </button>
+            <div style="flex: 1; min-width: 0">
+              <div style="font-size: 14px; font-weight: 700; line-height: 1.3">{{item.name}}</div>
+              <div style="display: flex; gap: 6px; margin-top: 5px; align-items: center">
+                <button style="height: 26px; padding: 0 8px; border: 0; border-radius: 8px; background: #F1F4F3; font-size: 11px; font-weight: 600; color: #3D4A48; cursor: pointer">{{item.variant}} ▾</button>
+                <sc-if value="{{item.lowStock}}" hint-placeholder-val="{{ false }}"><span style="font-size: 11px; font-weight: 800; color: #B45309">{{item.stock}} left</span></sc-if>
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 8px">
+                <div>
+                  <div style="font-size: 15px; font-weight: 800">{{item.priceLabel}}</div>
+                  <div style="font-size: 11px; color: #8A9593"><span style="text-decoration: line-through">{{item.wasLabel}}</span> <b style="color: #00796B">{{item.offLabel}}</b></div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 4px">
+                  <button onClick="{{item.dec}}" aria-label="Decrease quantity" style="width: 32px; height: 32px; border: 0; border-radius: 10px; background: #E0F2F1; color: #00695C; font-size: 18px; font-weight: 800; cursor: pointer">−</button>
+                  <span style="min-width: 20px; text-align: center; font-size: 14px; font-weight: 800">{{item.qty}}</span>
+                  <button onClick="{{item.inc}}" aria-label="Increase quantity" style="width: 32px; height: 32px; border: 0; border-radius: 10px; background: #00897B; color: #FFFFFF; font-size: 18px; font-weight: 800; cursor: pointer">+</button>
+                </div>
+              </div>
+              <div style="display: flex; gap: 14px; margin-top: 4px">
+                <button onClick="{{item.save}}" style="height: 30px; border: 0; background: none; padding: 0; font-size: 12px; font-weight: 600; color: #5F6B69; cursor: pointer">Save for later</button>
+                <button onClick="{{item.remove}}" style="height: 30px; border: 0; background: none; padding: 0; font-size: 12px; font-weight: 600; color: #B3261E; cursor: pointer">Remove</button>
+              </div>
+            </div>
+          </div>
+        </sc-for>
+
+        <div style="padding: 12px 0 10px">
+          <sc-if value="{{shop.hasCoupon}}" hint-placeholder-val="{{ true }}">
+            <div style="position: relative; display: flex; align-items: stretch; border-radius: 14px; overflow: hidden; background: #FFF7E6; border: 1px solid #F5D9A0">
+              <div style="width: 70px; background: #F59E0B; color: #FFFFFF; display: grid; place-items: center; font-size: 18px; font-weight: 900; line-height: 1; text-align: center">10%<br><span style="font-size: 10px; font-weight: 800">OFF</span></div>
+              <div style="flex: 1; padding: 10px 12px; border-left: 2px dashed #F5D9A0">
+                <div style="font-size: 13px; font-weight: 800; letter-spacing: 0.6px">{{shop.couponCode}}</div>
+                <div style="font-size: 11px; color: #6B5A3A; margin-top: 2px">{{shop.couponLabel}}</div>
+              </div>
+              <button onClick="{{shop.applyCoupon}}" style="align-self: center; margin-right: 10px; height: 34px; padding: 0 14px; border: 0; border-radius: 17px; background: #0D1F1C; color: #FFFFFF; font-size: 12px; font-weight: 800; cursor: pointer">Apply</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{shop.couponApplied}}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; align-items: center; gap: 10px; border-radius: 14px; padding: 10px 12px; background: #E0F2F1">
+              <span style="width: 26px; height: 26px; border-radius: 13px; background: #00897B; display: grid; place-items: center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span>
+              <span style="flex: 1; font-size: 13px"><b>{{shop.couponCode}}</b> saved you <b style="color: #00695C">{{shop.couponOffLabel}}</b></span>
+              <button onClick="{{shop.removeCoupon}}" style="height: 32px; border: 0; background: none; color: #B3261E; font-size: 12px; font-weight: 700; cursor: pointer">Remove</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{shop.noCoupon}}" hint-placeholder-val="{{ false }}">
+            <button style="width: 100%; height: 40px; border: 1px dashed #B8C4C2; border-radius: 12px; background: none; font-size: 12px; font-weight: 600; color: #5F6B69; cursor: pointer">No coupon right now · Enter a code</button>
+          </sc-if>
+          <div style="display: flex; justify-content: space-between; font-size: 13px; margin-top: 10px"><span style="color: #5F6B69">Shop subtotal</span><b>{{shop.subtotalLabel}}</b></div>
+          <div style="display: flex; justify-content: space-between; font-size: 13px; margin-top: 4px"><span style="color: #5F6B69">Delivery</span><span style="color: #00796B; font-weight: 600">Add location</span></div>
+        </div>
+      </div>
+    </section>
+  </sc-for>
+
+  <section style="margin: 16px 16px 0; background: #FFFFFF; border-radius: 20px; padding: 12px">
+    <div style="display: flex; gap: 12px; align-items: center">
+      <img src="/_blob/005e8f8398dc24934d69c4048709ee13" alt="Demo – Emerald Satin Evening Dress" style="width: 52px; height: 64px; border-radius: 12px; object-fit: cover; filter: grayscale(1); opacity: 0.5">
+      <div style="flex: 1; min-width: 0"><span style="font-size: 10px; font-weight: 800; color: #FFFFFF; background: #5F6B69; border-radius: 6px; padding: 2px 6px">SOLD OUT</span><div style="font-size: 13px; color: #5F6B69; margin-top: 4px">Demo – Emerald Satin Evening Dress</div></div>
+      <button style="height: 34px; padding: 0 12px; border: 0; border-radius: 17px; background: #E0F2F1; color: #00695C; font-size: 12px; font-weight: 800; cursor: pointer">Similar</button>
+    </div>
+  </section>
+
+  <sc-if value="{{hasSaved}}" hint-placeholder-val="{{ false }}">
+    <section style="margin: 16px 16px 0; background: #FFFFFF; border-radius: 20px; padding: 12px">
+      <div style="font-size: 14px; font-weight: 800; margin-bottom: 8px">Saved for later ({{savedCount}})</div>
+      <sc-for list="{{saved}}" as="s" hint-placeholder-count="1">
+        <div style="display: flex; gap: 12px; align-items: center; padding: 6px 0">
+          <img src="{{s.img}}" alt="{{s.name}}" style="width: 44px; height: 56px; border-radius: 10px; object-fit: cover">
+          <div style="flex: 1; font-size: 13px; font-weight: 700">{{s.name}}<div style="font-weight: 400; color: #5F6B69">{{s.priceLabel}}</div></div>
+          <button onClick="{{s.restore}}" style="height: 34px; padding: 0 12px; border: 0; border-radius: 17px; background: #00897B; color: #FFFFFF; font-size: 12px; font-weight: 800; cursor: pointer">Add back</button>
+        </div>
+      </sc-for>
+    </section>
+  </sc-if>
+
+  <section style="margin: 16px 16px 0; background: #FFFFFF; border-radius: 20px; padding: 16px">
+    <div style="font-size: 15px; font-weight: 800; margin-bottom: 12px">Payment summary</div>
+    <div style="display: flex; flex-direction: column; gap: 10px; font-size: 14px">
+      <div style="display: flex; justify-content: space-between"><span style="color: #5F6B69">Items ({{selectedCount}})</span><span>{{wasTotalLabel}}</span></div>
+      <div style="display: flex; justify-content: space-between"><span style="color: #5F6B69">Discounts</span><span style="color: #00796B; font-weight: 700">− {{discountLabel}}</span></div>
+      <div style="display: flex; justify-content: space-between"><span style="color: #5F6B69">Delivery</span><span style="color: #00796B; font-weight: 600">Add location</span></div>
+      <div style="display: flex; justify-content: space-between"><span style="color: #5F6B69">Shop coupons</span>
+        <sc-if value="{{hasCoupons}}" hint-placeholder-val="{{ false }}"><span style="color: #00796B; font-weight: 700">− {{couponTotalLabel}}</span></sc-if>
+        <sc-if value="{{noCoupons}}" hint-placeholder-val="{{ true }}"><span>—</span></sc-if>
+      </div>
+      <div style="display: flex; justify-content: space-between"><span style="color: #5F6B69">Charges (Paystack {{feePercentLabel}})</span><span>{{feeLabel}}</span></div>
+      <div style="height: 1px; background: #EEF1F0"></div>
+      <div style="display: flex; justify-content: space-between; font-size: 17px; font-weight: 800"><span>Total</span><span>{{totalLabel}}</span></div>
+    </div>
+    <div style="display: flex; gap: 6px; margin-top: 14px; flex-wrap: wrap">
+      <span style="font-size: 11px; font-weight: 700; color: #3D4A48; background: #F1F4F3; border-radius: 8px; padding: 6px 8px">Secured by Paystack</span>
+      <span style="font-size: 11px; font-weight: 700; color: #3D4A48; background: #F1F4F3; border-radius: 8px; padding: 6px 8px">Mobile Money</span>
+      <span style="font-size: 11px; font-weight: 700; color: #3D4A48; background: #F1F4F3; border-radius: 8px; padding: 6px 8px">Visa · Mastercard</span>
+      <span style="font-size: 11px; font-weight: 700; color: #3D4A48; background: #F1F4F3; border-radius: 8px; padding: 6px 8px">One payment, one order per shop</span>
+    </div>
+  </section>
+
+  <div style="position: absolute; left: 12px; right: 12px; bottom: 18px; background: #0D1F1C; border-radius: 22px; padding: 10px 10px 10px 18px; display: flex; align-items: center; gap: 12px; box-shadow: 0 12px 30px rgba(0,0,0,0.25)">
+    <div style="flex: 1; color: #FFFFFF">
+      <div style="font-size: 11px; opacity: 0.7">{{selectedCount}} items · incl. Paystack charges</div>
+      <div style="font-size: 19px; font-weight: 800">{{totalLabel}}</div>
+    </div>
+    <button style="height: 50px; padding: 0 22px; border: 0; border-radius: 16px; background: #00BFA5; color: #00332D; font-size: 15px; font-weight: 900; cursor: pointer">Checkout →</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1800}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      items: [
+        { id: "a", shop: "s1", name: "Demo – Burgundy Velvet Abaya with Pearls", variant: "Size M · Burgundy", price: 560, was: 690, qty: 1, stock: 3, selected: true, img: "/_blob/4be356f44cd9b83e012d567a42e4971b" },
+        { id: "b", shop: "s1", name: "Demo – Structured Leather Handbag", variant: "One size · Tan", price: 690, was: 850, qty: 1, stock: 8, selected: true, img: "/_blob/b3f89ebe4df0ae04e361c5908830a3a5" },
+        { id: "c", shop: "s2", name: "Demo – Men's Leather Jacket", variant: "Size L · Black", price: 850, was: 1050, qty: 1, stock: 2, selected: true, img: "/_blob/829983302ec7e160c6baa9201f5bd467" }
+      ],
+      savedIds: [],
+      applied: {}
+    };
+  }
+  renderVals() {
+    const FEE_PERCENT = 1.95; // platform_settings.processingFeePercent (Paystack Ghana rate)
+    const r = FEE_PERCENT / 100;
+    const money = (n) => "GH₵" + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    const set = (fn) => this.setState((s) => ({ items: s.items.map(fn) }));
+    const live = this.state.items.filter((i) => !this.state.savedIds.includes(i.id));
+    const shopsMeta = [
+      { id: "s1", name: "demo seller's Store", verified: true, logo: "/_blob/91b55090761925dd6e43e35dc59541b3",
+        coupon: { code: "KIYU10", percent: 10, minSpend: 500, label: "10% off this shop · min. spend GH₵500" } },
+      { id: "s2", name: "Second shop (example)", verified: false, logo: "/_blob/829983302ec7e160c6baa9201f5bd467", coupon: null }
+    ];
+    let couponTotal = 0;
+    const shops = shopsMeta.map((sh) => {
+      const its = live.filter((i) => i.shop === sh.id);
+      const sub = its.filter((i) => i.selected).reduce((t, i) => t + i.price * i.qty, 0);
+      const c = sh.coupon;
+      const eligible = !!c && sub >= c.minSpend;
+      const isApplied = eligible && !!this.state.applied[sh.id];
+      const off = isApplied ? Math.round(sub * c.percent) / 100 : 0;
+      couponTotal += off;
+      return {
+        ...sh,
+        itemsLabel: its.length + (its.length === 1 ? " item" : " items"),
+        subtotalLabel: money(sub - off),
+        hasCoupon: eligible && !isApplied,
+        couponApplied: isApplied,
+        noCoupon: !eligible,
+        couponCode: c ? c.code : "",
+        couponLabel: c ? c.label : "",
+        couponOffLabel: money(off),
+        applyCoupon: () => this.setState((s) => ({ applied: { ...s.applied, [sh.id]: true } })),
+        removeCoupon: () => this.setState((s) => ({ applied: { ...s.applied, [sh.id]: false } })),
+        items: its.map((i) => ({
+          ...i,
+          unselected: !i.selected,
+          lowStock: i.stock <= 3,
+          priceLabel: money(i.price * i.qty),
+          wasLabel: money(i.was * i.qty),
+          offLabel: "−" + Math.round((1 - i.price / i.was) * 100) + "%",
+          toggle: () => set((x) => (x.id === i.id ? { ...x, selected: !x.selected } : x)),
+          inc: () => set((x) => (x.id === i.id ? { ...x, qty: Math.min(x.stock, x.qty + 1) } : x)),
+          dec: () => set((x) => (x.id === i.id ? { ...x, qty: Math.max(1, x.qty - 1) } : x)),
+          remove: () => this.setState((s) => ({ items: s.items.filter((x) => x.id !== i.id) })),
+          save: () => this.setState((s) => ({ savedIds: s.savedIds.concat(i.id) }))
+        }))
+      };
+    }).filter((sh) => sh.items.length > 0);
+    const sel = live.filter((i) => i.selected);
+    const itemsNet = sel.reduce((t, i) => t + i.price * i.qty, 0);
+    const wasTotal = sel.reduce((t, i) => t + i.was * i.qty, 0);
+    const base = itemsNet - couponTotal;
+    // Same gross-up the server uses at checkout, so the shop receives its full amount.
+    const fee = base > 0 ? Math.round((base * r / (1 - r)) * 100) / 100 : 0;
+    const total = base + fee;
+    const count = sel.reduce((t, i) => t + i.qty, 0);
+    const allSelected = live.length > 0 && live.every((i) => i.selected);
+    const saved = this.state.items.filter((i) => this.state.savedIds.includes(i.id)).map((i) => ({
+      ...i, priceLabel: money(i.price),
+      restore: () => this.setState((s) => ({ savedIds: s.savedIds.filter((x) => x !== i.id) }))
+    }));
+    const liveCount = live.reduce((t, i) => t + i.qty, 0);
+    const savings = wasTotal - itemsNet + couponTotal;
+    return {
+      shops,
+      saved, hasSaved: saved.length > 0, savedCount: saved.length,
+      allSelected, notAllSelected: !allSelected,
+      toggleAll: () => this.setState((s) => ({ items: s.items.map((x) => ({ ...x, selected: !allSelected })) })),
+      itemCountLabel: liveCount + (liveCount === 1 ? " item" : " items"),
+      shopCountLabel: shops.length + (shops.length === 1 ? " shop" : " shops"),
+      selectedCount: count,
+      wasTotalLabel: money(wasTotal),
+      discountLabel: money(wasTotal - itemsNet),
+      hasCoupons: couponTotal > 0, noCoupons: couponTotal === 0,
+      couponTotalLabel: money(couponTotal),
+      feePercentLabel: FEE_PERCENT + "%",
+      feeLabel: money(fee),
+      totalLabel: money(total),
+      savingsLabel: money(savings)
+    };
+  }
+}
+
+</script>
+</body>
+</html>

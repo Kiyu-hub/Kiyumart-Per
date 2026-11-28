@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>KiyuMart cart — B (editorial)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>body{margin:0}button{font-family:inherit}a{color:#00796B}</style>
+</helmet>
+<div style="width: 390px; min-height: 1800px; position: relative; box-sizing: border-box; background: #FFFFFF; color: #111111; font-family: -apple-system, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif; padding-bottom: 130px">
+
+  <header style="padding: 16px 20px 8px; display: flex; align-items: center; justify-content: space-between">
+    <button aria-label="Back" style="width: 44px; height: 44px; margin-left: -12px; border: 0; background: none; display: grid; place-items: center; cursor: pointer">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <button onClick="{{toggleAll}}" style="height: 44px; border: 0; background: none; font-size: 13px; font-weight: 600; color: #00796B; cursor: pointer">
+      <sc-if value="{{allSelected}}" hint-placeholder-val="{{ true }}">Deselect all</sc-if>
+      <sc-if value="{{notAllSelected}}" hint-placeholder-val="{{ false }}">Select all</sc-if>
+    </button>
+  </header>
+  <div style="padding: 0 20px 18px">
+    <div style="font-size: 34px; font-weight: 800; letter-spacing: -0.8px; line-height: 1.05">Your bag</div>
+    <div style="font-size: 14px; color: #6B6B6B; margin-top: 6px">{{itemCountLabel}} from {{shopCountLabel}} · each shop delivers separately</div>
+  </div>
+
+  <button style="margin: 0 20px; width: calc(100% - 40px); display: flex; align-items: center; gap: 12px; padding: 14px 0; border: 0; border-top: 1px solid #111; border-bottom: 1px solid #E5E5E5; background: none; text-align: left; cursor: pointer; color: #111">
+    <span style="font-size: 11px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; width: 82px">Deliver to</span>
+    <span style="flex: 1; font-size: 14px; color: #00796B; font-weight: 600">Add your location</span>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+  </button>
+
+  <sc-for list="{{shops}}" as="shop" hint-placeholder-count="2">
+    <section style="padding: 26px 20px 0">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid #E5E5E5">
+        <div style="font-size: 11px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase">{{shop.name}}
+          <sc-if value="{{shop.verified}}" hint-placeholder-val="{{ true }}"><span style="color: #00796B; letter-spacing: 0.4px"> · Verified</span></sc-if>
+        </div>
+        <a href="#" style="font-size: 12px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; padding: 8px 0">Visit</a>
+      </div>
+
+      <sc-for list="{{shop.items}}" as="item" hint-placeholder-count="2">
+        <div style="display: flex; gap: 16px; padding: 18px 0; border-bottom: 1px solid #E5E5E5">
+          <div style="position: relative; flex-shrink: 0">
+            <img src="{{item.img}}" alt="{{item.name}}" style="width: 120px; height: 156px; object-fit: cover; background: #F4F4F4; display: block">
+            <button onClick="{{item.toggle}}" aria-label="Select {{item.name}}" style="position: absolute; top: 4px; left: 4px; width: 44px; height: 44px; border: 0; background: none; padding: 0; cursor: pointer; display: grid; place-items: center">
+              <sc-if value="{{item.selected}}" hint-placeholder-val="{{ true }}"><span style="width: 22px; height: 22px; background: #111; display: grid; place-items: center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg></span></sc-if>
+              <sc-if value="{{item.unselected}}" hint-placeholder-val="{{ false }}"><span style="width: 22px; height: 22px; background: rgba(255,255,255,0.9); border: 1.5px solid #111; box-sizing: border-box"></span></sc-if>
+            </button>
+          </div>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+            <div style="font-size: 15px; font-weight: 600; line-height: 1.3">{{item.name}}</div>
+            <button style="align-self: flex-start; margin-top: 6px; border: 0; background: none; padding: 4px 0; font-size: 13px; color: #6B6B6B; text-decoration: underline; text-underline-offset: 3px; cursor: pointer">{{item.variant}}</button>
+            <div style="margin-top: 8px; font-size: 16px; font-weight: 800">{{item.priceLabel}}</div>
+            <div style="font-size: 12px; color: #8A8A8A"><span style="text-decoration: line-through">{{item.wasLabel}}</span> <span style="color: #00796B; font-weight: 700">{{item.offLabel}}</span></div>
+            <sc-if value="{{item.lowStock}}" hint-placeholder-val="{{ false }}"><div style="margin-top: 6px; font-size: 11px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; color: #B45309">Only {{item.stock}} left</div></sc-if>
+            <div style="flex: 1"></div>
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 10px">
+              <div style="display: flex; align-items: center; border: 1px solid #111">
+                <button onClick="{{item.dec}}" aria-label="Decrease quantity" style="width: 36px; height: 36px; border: 0; background: none; font-size: 16px; cursor: pointer">−</button>
+                <span style="min-width: 22px; text-align: center; font-size: 14px; font-weight: 700">{{item.qty}}</span>
+                <button onClick="{{item.inc}}" aria-label="Increase quantity" style="width: 36px; height: 36px; border: 0; background: none; font-size: 16px; cursor: pointer">+</button>
+              </div>
+              <div style="display: flex">
+                <button onClick="{{item.save}}" aria-label="Save {{item.name}} for later" style="width: 40px; height: 40px; border: 0; background: none; display: grid; place-items: center; cursor: pointer"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z"/></svg></button>
+                <button onClick="{{item.remove}}" aria-label="Remove {{item.name}}" style="width: 40px; height: 40px; border: 0; background: none; display: grid; place-items: center; cursor: pointer"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#111" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-for>
+
+      <div style="padding: 14px 0 0">
+        <sc-if value="{{shop.hasCoupon}}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: #111; color: #FFFFFF">
+            <div style="flex: 1; min-width: 0">
+              <div style="font-size: 10px; font-weight: 800; letter-spacing: 1.4px; text-transform: uppercase; color: #80CBC4">Coupon for you</div>
+              <div style="font-size: 15px; font-weight: 800; letter-spacing: 1px; margin-top: 2px">{{shop.couponCode}}</div>
+              <div style="font-size: 12px; color: #BDBDBD; margin-top: 2px">{{shop.couponLabel}}</div>
+            </div>
+            <button onClick="{{shop.applyCoupon}}" style="height: 40px; padding: 0 18px; border: 0; background: #00BFA5; color: #002B26; font-size: 13px; font-weight: 800; cursor: pointer">Apply</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{shop.couponApplied}}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-top: 1px dashed #111; border-bottom: 1px dashed #111; font-size: 13px">
+            <span><b style="letter-spacing: 0.8px">{{shop.couponCode}}</b> applied <b style="color: #00796B">− {{shop.couponOffLabel}}</b></span>
+            <button onClick="{{shop.removeCoupon}}" style="height: 32px; border: 0; background: none; font-size: 12px; font-weight: 600; text-decoration: underline; cursor: pointer">Remove</button>
+          </div>
+        </sc-if>
+        <sc-if value="{{shop.noCoupon}}" hint-placeholder-val="{{ false }}">
+          <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #6B6B6B">
+            <span>No coupon available right now</span>
+            <button style="height: 32px; border: 0; background: none; font-size: 12px; font-weight: 600; color: #111; text-decoration: underline; cursor: pointer">Enter a code</button>
+          </div>
+        </sc-if>
+        <div style="display: flex; justify-content: space-between; font-size: 13px; margin-top: 12px"><span style="color: #6B6B6B">Shop subtotal</span><b>{{shop.subtotalLabel}}</b></div>
+        <div style="display: flex; justify-content: space-between; font-size: 13px; margin-top: 6px"><span style="color: #6B6B6B">Delivery</span><span style="color: #00796B; font-weight: 600">Add location</span></div>
+      </div>
+    </section>
+  </sc-for>
+
+  <section style="padding: 30px 20px 0">
+    <div style="font-size: 11px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; padding-bottom: 10px; border-bottom: 1px solid #E5E5E5">Sold out</div>
+    <div style="display: flex; gap: 14px; align-items: center; padding: 14px 0; border-bottom: 1px solid #E5E5E5">
+      <img src="/_blob/005e8f8398dc24934d69c4048709ee13" alt="Demo – Emerald Satin Evening Dress" style="width: 60px; height: 78px; object-fit: cover; filter: grayscale(1); opacity: 0.5">
+      <div style="flex: 1; font-size: 13px; color: #6B6B6B">Demo – Emerald Satin Evening Dress<div style="font-size: 12px; margin-top: 2px">Not included in checkout</div></div>
+      <button style="height: 36px; padding: 0 12px; border: 1px solid #111; background: none; font-size: 12px; font-weight: 700; cursor: pointer">Find similar</button>
+    </div>
+  </section>
+
+  <sc-if value="{{hasSaved}}" hint-placeholder-val="{{ false }}">
+    <section style="padding: 30px 20px 0">
+      <div style="font-size: 11px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; padding-bottom: 10px; border-bottom: 1px solid #E5E5E5">Saved for later ({{savedCount}})</div>
+      <sc-for list="{{saved}}" as="s" hint-placeholder-count="1">
+        <div style="display: flex; gap: 14px; align-items: center; padding: 12px 0; border-bottom: 1px solid #E5E5E5">
+          <img src="{{s.img}}" alt="{{s.name}}" style="width: 48px; height: 62px; object-fit: cover">
+          <div style="flex: 1; font-size: 13px; font-weight: 600">{{s.name}}<div style="font-weight: 400; color: #6B6B6B">{{s.priceLabel}}</div></div>
+          <button onClick="{{s.restore}}" style="height: 36px; padding: 0 12px; border: 1px solid #111; background: none; font-size: 12px; font-weight: 700; cursor: pointer">Move to bag</button>
+        </div>
+      </sc-for>
+    </section>
+  </sc-if>
+
+  <section style="margin: 30px 20px 0; padding: 20px; background: #F6F6F4">
+    <div style="font-size: 11px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; margin-bottom: 14px">Summary</div>
+    <div style="display: flex; flex-direction: column; gap: 10px; font-size: 14px">
+      <div style="display: flex; justify-content: space-between"><span>Items ({{selectedCount}})</span><span>{{wasTotalLabel}}</span></div>
+      <div style="display: flex; justify-content: space-between"><span>Discounts</span><span style="color: #00796B">− {{discountLabel}}</span></div>
+      <div style="display: flex; justify-content: space-between"><span>Delivery</span><span style="color: #00796B">Add location</span></div>
+      <div style="display: flex; justify-content: space-between"><span>Shop coupons</span>
+        <sc-if value="{{hasCoupons}}" hint-placeholder-val="{{ false }}"><span style="color: #00796B">− {{couponTotalLabel}}</span></sc-if>
+        <sc-if value="{{noCoupons}}" hint-placeholder-val="{{ true }}"><span>—</span></sc-if>
+      </div>
+      <div style="display: flex; justify-content: space-between"><span>Charges (Paystack {{feePercentLabel}})</span><span>{{feeLabel}}</span></div>
+      <div style="border-top: 1px solid #111; margin-top: 4px; padding-top: 12px; display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 15px; font-weight: 800">Total</span><span style="font-size: 22px; font-weight: 800; letter-spacing: -0.4px">{{totalLabel}}</span></div>
+    </div>
+    <div style="font-size: 12px; color: #6B6B6B; line-height: 1.5; margin-top: 12px">Paid securely with Paystack (Mobile Money or card). Paystack's charge is included in your total. One payment; each shop gets its own order.</div>
+  </section>
+
+  <div style="position: absolute; left: 0; right: 0; bottom: 0; background: #FFFFFF; border-top: 1px solid #111; padding: 12px 20px 26px">
+    <button style="width: 100%; height: 54px; border: 0; background: #111111; color: #FFFFFF; font-size: 15px; font-weight: 800; letter-spacing: 0.6px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; cursor: pointer">
+      <span>CHECKOUT · {{selectedCount}}</span><span>{{totalLabel}}</span>
+    </button>
+    <div style="text-align: center; font-size: 12px; color: #00796B; font-weight: 700; margin-top: 8px">You save {{savingsLabel}}</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1800}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      items: [
+        { id: "a", shop: "s1", name: "Demo – Burgundy Velvet Abaya with Pearls", variant: "Size M · Burgundy", price: 560, was: 690, qty: 1, stock: 3, selected: true, img: "/_blob/4be356f44cd9b83e012d567a42e4971b" },
+        { id: "b", shop: "s1", name: "Demo – Structured Leather Handbag", variant: "One size · Tan", price: 690, was: 850, qty: 1, stock: 8, selected: true, img: "/_blob/b3f89ebe4df0ae04e361c5908830a3a5" },
+        { id: "c", shop: "s2", name: "Demo – Men's Leather Jacket", variant: "Size L · Black", price: 850, was: 1050, qty: 1, stock: 2, selected: true, img: "/_blob/829983302ec7e160c6baa9201f5bd467" }
+      ],
+      savedIds: [],
+      applied: {}
+    };
+  }
+  renderVals() {
+    const FEE_PERCENT = 1.95; // platform_settings.processingFeePercent (Paystack Ghana rate)
+    const r = FEE_PERCENT / 100;
+    const money = (n) => "GH₵" + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    const set = (fn) => this.setState((s) => ({ items: s.items.map(fn) }));
+    const live = this.state.items.filter((i) => !this.state.savedIds.includes(i.id));
+    const shopsMeta = [
+      { id: "s1", name: "demo seller's Store", verified: true, logo: "/_blob/91b55090761925dd6e43e35dc59541b3",
+        coupon: { code: "KIYU10", percent: 10, minSpend: 500, label: "10% off this shop · min. spend GH₵500" } },
+      { id: "s2", name: "Second shop (example)", verified: false, logo: "/_blob/829983302ec7e160c6baa9201f5bd467", coupon: null }
+    ];
+    let couponTotal = 0;
+    const shops = shopsMeta.map((sh) => {
+      const its = live.filter((i) => i.shop === sh.id);
+      const sub = its.filter((i) => i.selected).reduce((t, i) => t + i.price * i.qty, 0);
+      const c = sh.coupon;
+      const eligible = !!c && sub >= c.minSpend;
+      const isApplied = eligible && !!this.state.applied[sh.id];
+      const off = isApplied ? Math.round(sub * c.percent) / 100 : 0;
+      couponTotal += off;
+      return {
+        ...sh,
+        itemsLabel: its.length + (its.length === 1 ? " item" : " items"),
+        subtotalLabel: money(sub - off),
+        hasCoupon: eligible && !isApplied,
+        couponApplied: isApplied,
+        noCoupon: !eligible,
+        couponCode: c ? c.code : "",
+        couponLabel: c ? c.label : "",
+        couponOffLabel: money(off),
+        applyCoupon: () => this.setState((s) => ({ applied: { ...s.applied, [sh.id]: true } })),
+        removeCoupon: () => this.setState((s) => ({ applied: { ...s.applied, [sh.id]: false } })),
+        items: its.map((i) => ({
+          ...i,
+          unselected: !i.selected,
+          lowStock: i.stock <= 3,
+          priceLabel: money(i.price * i.qty),
+          wasLabel: money(i.was * i.qty),
+          offLabel: "−" + Math.round((1 - i.price / i.was) * 100) + "%",
+          toggle: () => set((x) => (x.id === i.id ? { ...x, selected: !x.selected } : x)),
+          inc: () => set((x) => (x.id === i.id ? { ...x, qty: Math.min(x.stock, x.qty + 1) } : x)),
+          dec: () => set((x) => (x.id === i.id ? { ...x, qty: Math.max(1, x.qty - 1) } : x)),
+          remove: () => this.setState((s) => ({ items: s.items.filter((x) => x.id !== i.id) })),
+          save: () => this.setState((s) => ({ savedIds: s.savedIds.concat(i.id) }))
+        }))
+      };
+    }).filter((sh) => sh.items.length > 0);
+    const sel = live.filter((i) => i.selected);
+    const itemsNet = sel.reduce((t, i) => t + i.price * i.qty, 0);
+    const wasTotal = sel.reduce((t, i) => t + i.was * i.qty, 0);
+    const base = itemsNet - couponTotal;
+    // Same gross-up the server uses at checkout, so the shop receives its full amount.
+    const fee = base > 0 ? Math.round((base * r / (1 - r)) * 100) / 100 : 0;
+    const total = base + fee;
+    const count = sel.reduce((t, i) => t + i.qty, 0);
+    const allSelected = live.length > 0 && live.every((i) => i.selected);
+    const saved = this.state.items.filter((i) => this.state.savedIds.includes(i.id)).map((i) => ({
+      ...i, priceLabel: money(i.price),
+      restore: () => this.setState((s) => ({ savedIds: s.savedIds.filter((x) => x !== i.id) }))
+    }));
+    const liveCount = live.reduce((t, i) => t + i.qty, 0);
+    const savings = wasTotal - itemsNet + couponTotal;
+    return {
+      shops,
+      saved, hasSaved: saved.length > 0, savedCount: saved.length,
+      allSelected, notAllSelected: !allSelected,
+      toggleAll: () => this.setState((s) => ({ items: s.items.map((x) => ({ ...x, selected: !allSelected })) })),
+      itemCountLabel: liveCount + (liveCount === 1 ? " item" : " items"),
+      shopCountLabel: shops.length + (shops.length === 1 ? " shop" : " shops"),
+      selectedCount: count,
+      wasTotalLabel: money(wasTotal),
+      discountLabel: money(wasTotal - itemsNet),
+      hasCoupons: couponTotal > 0, noCoupons: couponTotal === 0,
+      couponTotalLabel: money(couponTotal),
+      feePercentLabel: FEE_PERCENT + "%",
+      feeLabel: money(fee),
+      totalLabel: money(total),
+      savingsLabel: money(savings)
+    };
+  }
+}
+
+</script>
+</body>
+</html>
