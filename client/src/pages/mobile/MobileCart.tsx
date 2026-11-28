@@ -17,6 +17,7 @@ import {
   writeExcludedCartIds,
 } from "@/lib/cartSelection";
 import { couponDiscountFor, resolveProcessingFeePercent, summarizeCart } from "@/lib/cartTotals";
+import { priceOf, discountOf, isSoldOut as productSoldOut } from "@/lib/listing";
 
 /*
  * Phone cart — design "A" (approved 28 Nov 2026, docs/design/cart-redesign-20261128).
@@ -327,6 +328,27 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
     onCheckout();
   };
 
+  /* ── Empty cart: real shops and products to browse ── */
+  const isEmptyCart = !isLoading && cartItems.length === 0;
+  const { data: browseStores = [] } = useQuery<any[]>({
+    queryKey: ["/api/stores", "cart-empty"],
+    enabled: isEmptyCart,
+    staleTime: 5 * 60_000,
+    queryFn: () => fetchSameOriginJson<any[]>("/api/stores"),
+  });
+  const { data: browseProducts = [] } = useQuery<any[]>({
+    queryKey: ["/api/products", "cart-empty"],
+    enabled: isEmptyCart,
+    staleTime: 5 * 60_000,
+    queryFn: () => fetchSameOriginJson<any[]>("/api/products?isActive=true&limit=24"),
+  });
+  const shopTiles = (Array.isArray(browseStores) ? browseStores : [])
+    .filter((st) => st?.name && st?.isActive !== false && st?.primarySellerId)
+    .slice(0, 8);
+  const picks = (Array.isArray(browseProducts) ? browseProducts : [])
+    .filter((p) => p?.id && p?.isActive !== false && !productSoldOut(p) && Array.isArray(p?.images) && p.images[0])
+    .slice(0, 4);
+
   /* ── Shared header ── */
   const BackButton = (
     <button
@@ -369,17 +391,18 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
   /* ── Empty cart ── */
   if (cartItems.length === 0) {
     return (
-      <div style={{ minHeight: "100dvh", background: t.bg, display: "flex", flexDirection: "column", fontFamily: F, color: t.txt }}>
+      <div data-testid="cart-empty" style={{ minHeight: "100dvh", background: t.bg, fontFamily: F, color: t.txt, paddingBottom: "max(28px, env(safe-area-inset-bottom))" }}>
         <div style={headerStyle}>
           {BackButton}
           <div style={{ flex: 1, fontSize: 20, fontWeight: 800 }}>My cart</div>
         </div>
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 32px", textAlign: "center" }}>
-          <div style={{ width: 112, height: 112, borderRadius: 56, background: t.tintStrong, display: "grid", placeItems: "center", marginBottom: 20 }}>
-            <svg width={52} height={52} viewBox="0 0 24 24" fill="none" stroke={t.link} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 7h12l-1 13H7L6 7z" /><path d="M9 7a3 3 0 0 1 6 0" /></svg>
+
+        <section style={{ margin: "12px 12px 0", background: t.card, borderRadius: 20, padding: "28px 20px 20px", textAlign: "center" }}>
+          <div style={{ width: 96, height: 96, borderRadius: 48, background: t.tintStrong, display: "grid", placeItems: "center", margin: "0 auto 16px" }}>
+            <svg width={46} height={46} viewBox="0 0 24 24" fill="none" stroke={t.link} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 7h12l-1 13H7L6 7z" /><path d="M9 7a3 3 0 0 1 6 0" /></svg>
           </div>
-          <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 8 }}>Your cart is empty</div>
-          <div style={{ fontSize: 14, color: t.muted, lineHeight: 1.5, marginBottom: 24 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 6 }}>Your cart is empty</div>
+          <div style={{ fontSize: 14, color: t.muted, lineHeight: 1.5, marginBottom: 20 }}>
             Browse shops across KiyuMart and add the pieces you love.
           </div>
           <button data-testid="button-shop-now" onClick={() => navigate("/")} style={{ height: 52, width: "100%", border: 0, borderRadius: 26, background: t.accentDeep, color: "#fff", fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: F }}>
@@ -388,15 +411,58 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
           <button onClick={() => navigate("/wishlist")} style={{ height: 48, width: "100%", marginTop: 10, border: `1px solid ${t.link}`, borderRadius: 24, background: t.card, color: t.link, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: F }}>
             View wishlist
           </button>
-        </div>
-        <div style={{ padding: "0 16px", paddingBottom: "max(28px, env(safe-area-inset-bottom))" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Browse shops</div>
-          <button onClick={() => navigate("/stores")} style={{ width: "100%", background: t.card, borderRadius: 14, padding: 10, border: 0, display: "flex", alignItems: "center", gap: 10, cursor: "pointer", color: t.txt, fontFamily: F }}>
-            <span style={{ width: 40, height: 40, borderRadius: 20, background: t.tintStrong, display: "grid", placeItems: "center", color: t.link, fontWeight: 800, fontSize: 18 }}>+</span>
-            <span style={{ fontSize: 13, fontWeight: 600, flex: 1, textAlign: "left" }}>All shops</span>
-            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={t.muted} strokeWidth={2} strokeLinecap="round" aria-hidden="true"><path d="M9 6l6 6-6 6" /></svg>
-          </button>
-        </div>
+        </section>
+
+        <section style={{ marginTop: 22 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 16px 10px" }}>
+            <div style={{ fontSize: 16, fontWeight: 800 }}>Browse shops</div>
+            <button onClick={() => navigate("/stores")} style={{ border: 0, background: "none", color: t.link, fontSize: 13, fontWeight: 700, padding: "8px 0", cursor: "pointer", fontFamily: F }}>See all ›</button>
+          </div>
+          <div style={{ display: "flex", gap: 14, overflowX: "auto", padding: "0 16px 4px", scrollbarWidth: "none" as const }}>
+            {shopTiles.map((st) => (
+              <button key={st.id} onClick={() => navigate(`/sellers/${st.primarySellerId}`)} aria-label={`Visit ${st.name}`} style={{ flexShrink: 0, width: 76, border: 0, background: "none", padding: 0, cursor: "pointer", color: t.txt, fontFamily: F }}>
+                {st.logo ? (
+                  <img src={st.logo} alt="" style={{ width: 64, height: 64, borderRadius: 32, objectFit: "cover", display: "block", margin: "0 auto", background: t.card }} />
+                ) : (
+                  <span style={{ width: 64, height: 64, borderRadius: 32, background: t.tintStrong, color: t.link, display: "grid", placeItems: "center", margin: "0 auto", fontSize: 22, fontWeight: 800 }}>{String(st.name).charAt(0).toUpperCase()}</span>
+                )}
+                <span style={{ marginTop: 6, fontSize: 12, fontWeight: 600, lineHeight: 1.25, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>{st.name}</span>
+              </button>
+            ))}
+            <button onClick={() => navigate("/stores")} aria-label="All shops" style={{ flexShrink: 0, width: 76, border: 0, background: "none", padding: 0, cursor: "pointer", color: t.txt, fontFamily: F }}>
+              <span style={{ width: 64, height: 64, borderRadius: 32, background: t.card, border: `1px dashed ${t.ring}`, color: t.link, display: "grid", placeItems: "center", margin: "0 auto", fontSize: 24, fontWeight: 700 }}>+</span>
+              <span style={{ display: "block", marginTop: 6, fontSize: 12, fontWeight: 600 }}>All shops</span>
+            </button>
+          </div>
+        </section>
+
+        {picks.length > 0 && (
+          <section style={{ marginTop: 22, padding: "0 12px" }}>
+            <div style={{ fontSize: 16, fontWeight: 800, padding: "0 4px 10px" }}>Popular right now</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {picks.map((p) => {
+                const price = priceOf(p);
+                const off = discountOf(p);
+                const was = off > 0 ? price / (1 - off / 100) : 0;
+                return (
+                  <button key={p.id} onClick={() => navigate(`/product/${p.id}`)} aria-label={`Open ${p.name}`} style={{ border: 0, padding: 0, background: t.card, borderRadius: 16, overflow: "hidden", textAlign: "left", cursor: "pointer", color: t.txt, fontFamily: F }}>
+                    <div style={{ position: "relative" }}>
+                      <img src={p.images[0]} alt={p.name} style={{ width: "100%", aspectRatio: "4 / 5", objectFit: "cover", display: "block", background: t.stepBg }} />
+                      {off > 0 && <span style={{ position: "absolute", top: 8, left: 8, fontSize: 11, fontWeight: 800, color: "#fff", background: t.accentDeep, borderRadius: 8, padding: "3px 7px" }}>−{off}%</span>}
+                    </div>
+                    <div style={{ padding: "8px 10px 10px" }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.3, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const, minHeight: 34 }}>{p.name}</div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 4 }}>
+                        <span style={{ fontSize: 14, fontWeight: 800 }}>{money(price)}</span>
+                        {was > price && <span style={{ fontSize: 11, color: t.faint, textDecoration: "line-through" }}>{money(was)}</span>}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
       </div>
     );
   }

@@ -75,7 +75,7 @@ const send = (res, data) => res.json(data);
 const visibleProducts = () => (isMultiVendor ? products : products.filter((p) => p.storeId === "st1"));
 
 // MOCK_CART=1: a signed-in sample buyer with a multi-shop cart (cart page review).
-if (process.env.MOCK_CART === "1") {
+if (process.env.MOCK_CART === "1" || process.env.MOCK_CART === "empty") {
   app.use(express.json());
   const buyer = { id: "buyer1", role: "buyer", name: "Sample Buyer", email: "buyer@example.test", isActive: true };
   let cartRows = [
@@ -84,6 +84,7 @@ if (process.env.MOCK_CART === "1") {
     { id: "ci3", productId: "p8", quantity: 1, variantId: "v8", selectedColor: "Black", selectedSize: "L", selectedImageIndex: 0, availableStock: 2 },
     { id: "ci4", productId: "p4", quantity: 1, variantId: null, selectedColor: null, selectedSize: "S", selectedImageIndex: 0, availableStock: 0 },
   ];
+  if (process.env.MOCK_CART === "empty") cartRows = [];
   const coupons = [{ id: "cp1", code: "KIYU10", sellerId: "u1", discountType: "percentage", discountValue: "10", minimumPurchase: "500", isActive: true }, { id: "cp2", code: "KENTE50", sellerId: "u3", discountType: "fixed", discountValue: "50", minimumPurchase: "0", isActive: true }];
   const view = () => cartRows.map((c) => { const p = products.find((x) => x.id === c.productId); return { ...c, productName: p.name, productImage: p.images[0], price: p.price }; });
   app.get("/api/auth/me", (_q, r) => send(r, { user: buyer, ...buyer }));
