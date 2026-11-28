@@ -1,6 +1,7 @@
 // Phone cart: unticked items must stay in the cart after payment, and the
 // cart's money maths must match checkout / the server.
 import { matchPurchasedCartRows, clearPurchasedCartItems } from "../cartCleanup";
+import { normalizeRequestedCouponCodes } from "../couponRequest";
 import { filterCheckoutCartItems } from "../../client/src/lib/cartSelection";
 import { summarizeCart, couponDiscountFor, computeExactProcessingFee, resolveProcessingFeePercent } from "../../client/src/lib/cartTotals";
 
@@ -54,6 +55,20 @@ async function main() {
   check(near(s.fee, 1975 * 0.0195 / 0.9805), "Paystack charge uses server gross-up");
   check(near(s.total - s.fee, 1975), "total = items − coupon + charges");
   check(near(s.fee, computeExactProcessingFee(1975, 0.0195)), "same helper as checkout");
+  console.log("shop coupons (one per shop, only that shop's items)");
+  check(normalizeRequestedCouponCodes({ couponCodes: ["kiyu10", " SHOP5 "], couponCode: "KIYU10" }).join() === "KIYU10,SHOP5", "codes from list + legacy field, uppercased, no duplicates");
+  check(normalizeRequestedCouponCodes({ couponCodes: [{ code: "abc" }] }).join() === "ABC", "accepts {code} entries");
+  check(normalizeRequestedCouponCodes({}).length === 0, "no coupons");
+  const shopA = 560 + 690, shopB = 850;
+  const offA = couponDiscountFor({ discountType: "percentage", discountValue: "10" }, shopA);
+  const offB = couponDiscountFor({ discountType: "fixed", discountValue: "50" }, shopB);
+  const both = summarizeCart({ lines, couponDiscount: offA + offB, feePercent: 1.95 });
+  check(near(offA, 125) && near(offB, 50), "each coupon computed on its own shop");
+  check(near(shopA - offA, 1125) && near(shopB - offB, 800), "each shop keeps its own net (A 1,125 / B 800)");
+  const perShopFee = computeExactProcessingFee(shopA - offA, 0.0195) + computeExactProcessingFee(shopB - offB, 0.0195);
+  check(near(both.fee, perShopFee), "cart charge = sum of per-shop server charges");
+  const onlyA = summarizeCart({ lines, couponDiscount: offA, feePercent: 1.95 });
+  check(near(onlyA.itemsNet - onlyA.coupon - shopA + offA, shopB), "shop without a coupon is unaffected");
   check(resolveProcessingFeePercent(undefined) === 1.95 && resolveProcessingFeePercent("1.5") === 1.5, "fee percent from settings, default 1.95");
 }
 

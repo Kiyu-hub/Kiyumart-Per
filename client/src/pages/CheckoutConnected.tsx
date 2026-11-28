@@ -20,9 +20,11 @@ import { usePlatformSettings } from "@/hooks/usePlatformSettings";
 import { ensureMapboxRuntimeConfig, resolveMapboxAccessToken } from "@/tracking/mapbox/mapboxLoader";
 import {
   clearPersistedCheckoutCoupon,
-  readPersistedCheckoutCoupon,
+  readPersistedCheckoutCoupons,
+  removePersistedCheckoutCoupon,
   writePersistedCheckoutCoupon,
 } from "@/lib/checkoutCoupon";
+import { couponDiscountFor } from "@/lib/cartTotals";
 import { clearExcludedCartIds, filterCheckoutCartItems, readExcludedCartIds } from "@/lib/cartSelection";
 import { loadPaystackInlineScript, PaystackInlineService, resetPaystackGuard } from "@/lib/paystackInline";
 import { calculateProductPricingSummary, getCurrentSellingPrice, getOriginalDisplayPrice } from "@/lib/pricing";
@@ -65,6 +67,13 @@ interface Coupon {
   usageLimit?: number | null;
   usedCount?: number | null;
   expiryDate?: string | null;
+  sellerId?: string;
+}
+
+// One coupon per shop; it reduces only that shop's items.
+interface AppliedShopCoupon {
+  sellerId: string;
+  coupon: Coupon;
 }
 
 interface PlatformSettings {
@@ -164,7 +173,7 @@ export default function CheckoutConnected() {
   const [selectedZoneId, setSelectedZoneId] = useState("");
   const [selectedPickupStationId, setSelectedPickupStationId] = useState("");
   const [couponCode, setCouponCode] = useState("");
-  const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
+  const [appliedCoupons, setAppliedCoupons] = useState<AppliedShopCoupon[]>([]);
   const [isRestoringCoupon, setIsRestoringCoupon] = useState(false);
   const [isPaymentReviewOpen, setIsPaymentReviewOpen] = useState(false);
   const [isLaunchingInlinePayment, setIsLaunchingInlinePayment] = useState(false);
@@ -486,30 +495,32 @@ export default function CheckoutConnected() {
     setShowAddressSuggestions(false);
   }
 
+  // Finds which shop in this checkout a code belongs to and checks it against that shop's items.
   const validateCouponMutation = useMutation({
-    mutationFn: (data: { code: string; sellerId: string; orderTotal: string }) =>
-      fetchSameOriginJson<any>("/api/coupons/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      }),
-    onSuccess: (data) => {
-      if (data.valid && data.coupon) {
-        setAppliedCoupon(data.coupon);
-        const restoredCode = String(data.coupon.code || couponCode || "").trim().toUpperCase();
-        setCouponCode(restoredCode);
-        writePersistedCheckoutCoupon(user?.id, {
-          code: restoredCode,
-          sellerId: checkoutSellerId,
-          savedAt: Date.now(),
+    mutationFn: async (data: { code: string; sellers: Array<{ sellerId: string; subtotal: number }> }) => {
+      let lastMessage = "This coupon code is not valid";
+      for (const seller of data.sellers) {
+        const result = await fetchSameOriginJson<any>("/api/coupons/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: data.code, sellerId: seller.sellerId, orderTotal: seller.subtotal.toFixed(2) }),
         });
+        if (result?.valid && result?.coupon) return { valid: true, coupon: result.coupon as Coupon, sellerId: seller.sellerId };
+        if (result?.message && !/not valid for this seller/i.test(result.message)) lastMessage = result.message;
+      }
+      return { valid: false, message: lastMessage };
+    },
+    onSuccess: (data: any) => {
+      if (data.valid && data.coupon) {
+        const code = String(data.coupon.code || couponCode || "").trim().toUpperCase();
+        setAppliedCoupons((current) => [...current.filter((c) => c.sellerId !== data.sellerId), { sellerId: data.sellerId, coupon: data.coupon }]);
+        setCouponCode("");
+        writePersistedCheckoutCoupon(user?.id, { code, sellerId: data.sellerId, savedAt: Date.now() });
         toast({
           title: "Coupon Applied",
-          description: `${data.coupon.discountType === "percentage" ? `${data.coupon.discountValue}%` : formatPrice(parseFloat(data.coupon.discountValue))} discount applied successfully!`,
+          description: `${data.coupon.discountType === "percentage" ? `${data.coupon.discountValue}%` : formatPrice(parseFloat(data.coupon.discountValue))} off that shop's items.`,
         });
       } else {
-        setAppliedCoupon(null);
-        clearPersistedCheckoutCoupon(user?.id);
         toast({
           title: "Invalid Coupon",
           description: data.message || "This coupon code is not valid",
@@ -525,6 +536,11 @@ export default function CheckoutConnected() {
       });
     },
   });
+
+  const removeAppliedCoupon = (sellerId: string) => {
+    setAppliedCoupons((current) => current.filter((c) => c.sellerId !== sellerId));
+    removePersistedCheckoutCoupon(user?.id, sellerId);
+  };
 
   const initializeAndPay = async (data: { id?: string; checkoutSessionId?: string; isMultiVendor?: boolean; orderIds?: string[] }) => {
     try {
@@ -697,89 +713,76 @@ export default function CheckoutConnected() {
   const subtotal = pricingSummary.subtotal;
   const originalSubtotal = pricingSummary.originalSubtotal;
   const productSavings = pricingSummary.productSavings;
-  // One coupon per order, for the shop that issued it. Prefer the shop whose
-  // coupon the buyer applied in the cart, if that shop is in this checkout.
-  const cartSellerIds = itemsWithProducts.map((item) => item.product?.sellerId).filter(Boolean) as string[];
-  const persistedCouponSellerId = readPersistedCheckoutCoupon(user?.id)?.sellerId || null;
-  const checkoutSellerId =
-    (persistedCouponSellerId && cartSellerIds.includes(persistedCouponSellerId)
-      ? persistedCouponSellerId
-      : cartSellerIds[0]) || user?.id || null;
-  // The server validates and applies the coupon against this shop's subtotal only.
-  const couponSellerSubtotal = calculateProductPricingSummary(
-    itemsWithProducts
-      .filter((item) => item.product?.sellerId === checkoutSellerId)
-      .map((item) => ({ ...item.product!, quantity: item.quantity })),
-  ).subtotal;
+  // Shop coupons: each shop may have one, applied to that shop's items only.
+  const cartSellerIds = Array.from(
+    new Set(itemsWithProducts.map((item) => item.product?.sellerId).filter(Boolean) as string[]),
+  );
+  const sellerSubtotalOf = (sellerId: string) =>
+    calculateProductPricingSummary(
+      itemsWithProducts
+        .filter((item) => item.product?.sellerId === sellerId)
+        .map((item) => ({ ...item.product!, quantity: item.quantity })),
+    ).subtotal;
+  const sellerSubtotalsKey = cartSellerIds.map((id) => `${id}:${sellerSubtotalOf(id).toFixed(2)}`).join("|");
+  const sellersWithoutCoupon = cartSellerIds.filter((id) => !appliedCoupons.some((c) => c.sellerId === id));
 
   const { data: availableCoupons = [] } = useQuery<Coupon[]>({
-    queryKey: ["/api/coupons/available", checkoutSellerId, subtotal],
-    enabled: isAuthenticated && !!checkoutSellerId && subtotal > 0,
-    queryFn: () =>
-      fetchSameOriginJson<Coupon[]>(
-        `/api/coupons/available?sellerId=${encodeURIComponent(String(checkoutSellerId))}&orderTotal=${encodeURIComponent(
-          couponSellerSubtotal.toFixed(2),
-        )}`,
-        { cache: "no-store" },
-      ),
+    queryKey: ["/api/coupons/available", "checkout", sellerSubtotalsKey],
+    enabled: isAuthenticated && cartSellerIds.length > 0 && subtotal > 0,
+    queryFn: async () => {
+      const lists = await Promise.all(
+        cartSellerIds.map((sellerId) =>
+          fetchSameOriginJson<Coupon[]>(
+            `/api/coupons/available?sellerId=${encodeURIComponent(sellerId)}&orderTotal=${encodeURIComponent(
+              sellerSubtotalOf(sellerId).toFixed(2),
+            )}`,
+            { cache: "no-store" },
+          )
+            .then((list) => (Array.isArray(list) ? list.map((c) => ({ ...c, sellerId })) : []))
+            .catch(() => [] as Coupon[]),
+        ),
+      );
+      return lists.flat();
+    },
     refetchOnMount: "always",
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     staleTime: 0,
   });
+  const offeredCoupons = availableCoupons.filter((c) => c.sellerId && sellersWithoutCoupon.includes(c.sellerId));
 
+  // Bring back coupons applied in the cart (or earlier at checkout) that still fit.
   useEffect(() => {
     if (!user?.id) return;
     if (hasAttemptedCouponRestoreRef.current) return;
-    if (!itemsWithProducts.length || !checkoutSellerId || subtotal <= 0) return;
+    if (!itemsWithProducts.length || !cartSellerIds.length || subtotal <= 0) return;
 
     hasAttemptedCouponRestoreRef.current = true;
-    const persistedCoupon = readPersistedCheckoutCoupon(user.id);
-    if (!persistedCoupon?.code) return;
+    const saved = readPersistedCheckoutCoupons(user.id).filter((c) => c.sellerId && cartSellerIds.includes(c.sellerId));
+    if (!saved.length) return;
 
-    if (persistedCoupon.sellerId && persistedCoupon.sellerId !== checkoutSellerId) {
-      clearPersistedCheckoutCoupon(user.id);
-      return;
-    }
-
-    setCouponCode(persistedCoupon.code);
     setIsRestoringCoupon(true);
-
-    void fetchSameOriginJson<any>("/api/coupons/validate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        code: persistedCoupon.code,
-        sellerId: checkoutSellerId,
-        orderTotal: couponSellerSubtotal.toFixed(2),
-      }),
-    })
-      .then((data) => {
-        if (data?.valid && data?.coupon) {
-          setAppliedCoupon(data.coupon);
-          writePersistedCheckoutCoupon(user.id, {
-            code: String(data.coupon.code || persistedCoupon.code).trim().toUpperCase(),
-            sellerId: checkoutSellerId,
-            savedAt: Date.now(),
-          });
-        } else {
-          setAppliedCoupon(null);
-          clearPersistedCheckoutCoupon(user.id);
-        }
+    void Promise.all(
+      saved.map((entry) =>
+        fetchSameOriginJson<any>("/api/coupons/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: entry.code, sellerId: entry.sellerId, orderTotal: sellerSubtotalOf(entry.sellerId!).toFixed(2) }),
+        })
+          .then((data) => (data?.valid && data?.coupon ? ({ sellerId: entry.sellerId!, coupon: data.coupon } as AppliedShopCoupon) : null))
+          .catch(() => null),
+      ),
+    )
+      .then((results) => {
+        const valid = results.filter(Boolean) as AppliedShopCoupon[];
+        setAppliedCoupons(valid);
+        saved
+          .filter((entry) => !valid.some((v) => v.sellerId === entry.sellerId))
+          .forEach((entry) => removePersistedCheckoutCoupon(user.id, entry.sellerId!));
       })
-      .catch(() => {})
       .finally(() => { setIsRestoringCoupon(false); });
-  }, [checkoutSellerId, itemsWithProducts.length, subtotal, user?.id]);
-
-  useEffect(() => {
-    if (!user?.id) return;
-    if (!appliedCoupon) return;
-    writePersistedCheckoutCoupon(user.id, {
-      code: String(appliedCoupon.code || couponCode).trim().toUpperCase(),
-      sellerId: checkoutSellerId,
-      savedAt: Date.now(),
-    });
-  }, [appliedCoupon, checkoutSellerId, couponCode, user?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sellerSubtotalsKey, itemsWithProducts.length, subtotal, user?.id]);
 
   // Early return AFTER all hooks — cart empty and loading done
   if (!cartItems.length && !productsLoading) {
@@ -813,16 +816,15 @@ export default function CheckoutConnected() {
           ? parseFloat(selectedZone.fee) + deliveryFeeCommission
           : 0;
 
-  const calculateCouponDiscount = () => {
-    if (!appliedCoupon) return 0;
-    if (appliedCoupon.discountType === "percentage") {
-      return (couponSellerSubtotal * parseFloat(appliedCoupon.discountValue)) / 100;
-    } else {
-      return Math.min(couponSellerSubtotal, parseFloat(appliedCoupon.discountValue));
-    }
-  };
-
-  const couponDiscount = calculateCouponDiscount();
+  // Each coupon is worked out on its own shop's items, as the server does.
+  const couponDiscountBySeller = new Map(
+    appliedCoupons.map((c) => {
+      const shopSubtotal = sellerSubtotalOf(c.sellerId);
+      const meetsMinimum = shopSubtotal >= (Number(c.coupon.minimumPurchase) || 0);
+      return [c.sellerId, meetsMinimum ? couponDiscountFor(c.coupon, shopSubtotal) : 0] as const;
+    }),
+  );
+  const couponDiscount = Array.from(couponDiscountBySeller.values()).reduce((sum, value) => sum + value, 0);
   const discountedSubtotal = Math.max(0, subtotal - couponDiscount);
   const processingFeePercent = Number(settings?.processingFeePercent ?? "1.95");
   const processingFeeRate = Number.isFinite(processingFeePercent) ? processingFeePercent / 100 : 0.0195;
@@ -840,30 +842,21 @@ export default function CheckoutConnected() {
       });
       return;
     }
-
-    const sellerId = checkoutSellerId;
-    if (!sellerId) {
-      toast({
-        title: "Error",
-        description: "Unable to validate coupon at this time",
-        variant: "destructive",
-      });
+    if (!sellersWithoutCoupon.length) {
+      toast({ title: "Coupons applied", description: "Every shop in this order already has a coupon." });
       return;
     }
-
     validateCouponMutation.mutate({
-      code: couponCode.trim(),
-      sellerId,
-      orderTotal: couponSellerSubtotal.toFixed(2),
+      code: couponCode.trim().toUpperCase(),
+      sellers: sellersWithoutCoupon.map((sellerId) => ({ sellerId, subtotal: sellerSubtotalOf(sellerId) })),
     });
   };
 
   const handleQuickApplyCoupon = (coupon: Coupon) => {
-    setCouponCode(String(coupon.code || "").toUpperCase());
+    if (!coupon.sellerId) return;
     validateCouponMutation.mutate({
-      code: String(coupon.code || "").trim(),
-      sellerId: checkoutSellerId ?? "",
-      orderTotal: couponSellerSubtotal.toFixed(2),
+      code: String(coupon.code || "").trim().toUpperCase(),
+      sellers: [{ sellerId: coupon.sellerId, subtotal: sellerSubtotalOf(coupon.sellerId) }],
     });
   };
 
@@ -1033,7 +1026,8 @@ export default function CheckoutConnected() {
       deliveryLongitude: deliveryLng,
       deliveryFee: deliveryFee.toFixed(2),
       subtotal: subtotal.toFixed(2),
-      couponCode: appliedCoupon?.code || null,
+      couponCode: appliedCoupons[0]?.coupon.code || null,
+      couponCodes: appliedCoupons.filter((c) => (couponDiscountBySeller.get(c.sellerId) || 0) > 0).map((c) => c.coupon.code),
       couponDiscount: couponDiscount > 0 ? couponDiscount.toFixed(2) : null,
       processingFee: processingFee.toFixed(2),
       total: total.toFixed(2),
@@ -1421,11 +1415,11 @@ export default function CheckoutConnected() {
                 <CardDescription>Have a coupon? Apply it to get a discount</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {availableCoupons.length > 0 && !appliedCoupon ? (
+                {offeredCoupons.length > 0 ? (
                   <div className="space-y-2">
                     <p className="text-sm font-medium">Available coupons for this order</p>
                     <div className="flex flex-wrap gap-2">
-                      {availableCoupons.map((coupon) => (
+                      {offeredCoupons.map((coupon) => (
                         <button
                           key={coupon.id}
                           type="button"
@@ -1444,7 +1438,36 @@ export default function CheckoutConnected() {
                     </div>
                   </div>
                 ) : null}
-                {!appliedCoupon ? (
+                {appliedCoupons.map((applied) => (
+                  <div key={applied.sellerId} className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800">
+                    <div className="flex items-center gap-3">
+                      <Badge variant="secondary" className="bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-100" data-testid="badge-coupon-applied">
+                        {applied.coupon.code}
+                      </Badge>
+                      <span className="text-sm font-medium text-green-700 dark:text-green-300" data-testid="text-coupon-discount">
+                        {applied.coupon.discountType === "percentage"
+                          ? `${applied.coupon.discountValue}% off`
+                          : `${formatPrice(parseFloat(applied.coupon.discountValue))} off`}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {(couponDiscountBySeller.get(applied.sellerId) || 0) > 0 && (
+                        <span className="text-sm text-green-600 dark:text-green-400 font-medium" data-testid="text-coupon-amount">
+                          -{formatPrice(couponDiscountBySeller.get(applied.sellerId) || 0)}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeAppliedCoupon(applied.sellerId)}
+                        className="text-xs font-medium text-muted-foreground hover:text-destructive"
+                        data-testid="button-remove-coupon"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {sellersWithoutCoupon.length > 0 ? (
                   <div className="flex gap-2">
                     <Input
                       placeholder="Enter coupon code"
@@ -1462,25 +1485,7 @@ export default function CheckoutConnected() {
                       {validateCouponMutation.isPending || isRestoringCoupon ? "Validating..." : "Apply"}
                     </Button>
                   </div>
-                ) : (
-                  <div className="flex items-center justify-between p-3 bg-green-50 dark:bg-green-950 rounded-lg border border-green-200 dark:border-green-800">
-                    <div className="flex items-center gap-3">
-                      <Badge variant="secondary" className="bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-100" data-testid="badge-coupon-applied">
-                        {appliedCoupon.code}
-                      </Badge>
-                      <span className="text-sm font-medium text-green-700 dark:text-green-300" data-testid="text-coupon-discount">
-                        {appliedCoupon.discountType === "percentage" 
-                          ? `${appliedCoupon.discountValue}% off`
-                          : `${formatPrice(parseFloat(appliedCoupon.discountValue))} off`}
-                      </span>
-                    </div>
-                      {couponDiscount > 0 && (
-                        <div className="mt-2 text-sm text-green-600 dark:text-green-400 font-medium" data-testid="text-coupon-amount">
-                          -{formatPrice(couponDiscount)}
-                        </div>
-                      )}
-                  </div>
-                )}
+                ) : null}
               </CardContent>
             </Card>
           </div>

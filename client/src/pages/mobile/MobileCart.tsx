@@ -7,9 +7,9 @@ import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { fetchSameOriginJson, queryClient } from "@/lib/queryClient";
 import {
-  readPersistedCheckoutCoupon,
+  readPersistedCheckoutCoupons,
   writePersistedCheckoutCoupon,
-  clearPersistedCheckoutCoupon,
+  removePersistedCheckoutCoupon,
 } from "@/lib/checkoutCoupon";
 import {
   readExcludedCartIds,
@@ -23,7 +23,7 @@ import { couponDiscountFor, resolveProcessingFeePercent, summarizeCart } from "@
 /*
  * Phone cart — design "A" (approved 28 Nov 2026, docs/design/cart-redesign-20261128).
  * Items grouped by shop, tick to choose what to check out, one-tap shop coupons
- * (one coupon per order, applied to the shop that issued it), Paystack charges
+ * (one per shop; each reduces only that shop's items), Paystack charges
  * shown and passed to the buyer exactly as checkout and the server compute them.
  * Desktop cart (Cart.tsx) is unchanged.
  */
@@ -211,7 +211,8 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
     }),
   });
 
-  const [applied, setApplied] = useState<{ sellerId: string; coupon: Coupon } | null>(null);
+  // One coupon per shop; a shop without a coupon is never affected.
+  const [applied, setApplied] = useState<Record<string, Coupon>>({});
   const [codeOpenFor, setCodeOpenFor] = useState<string | null>(null);
   const [codeInput, setCodeInput] = useState("");
   const [busySeller, setBusySeller] = useState<string | null>(null);
@@ -226,17 +227,19 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
     return data?.valid && data?.coupon ? (data.coupon as Coupon) : { error: String(data?.message || "This coupon can't be used") };
   };
 
-  // Bring back a coupon applied earlier (or at checkout) if it still fits this cart.
+  // Bring back coupons applied earlier (or at checkout) that still fit this cart.
   const [restored, setRestored] = useState(false);
   useEffect(() => {
     if (restored || !userId || !available.length) return;
     setRestored(true);
-    const persisted = readPersistedCheckoutCoupon(userId);
-    if (!persisted?.code || !persisted.sellerId || !sellerIds.includes(persisted.sellerId)) return;
-    void validate(persisted.sellerId, persisted.code).then((r) => {
-      if ("code" in r) setApplied({ sellerId: persisted.sellerId!, coupon: r });
-      else clearPersistedCheckoutCoupon(userId);
-    }).catch(() => {});
+    for (const saved of readPersistedCheckoutCoupons(userId)) {
+      const sid = saved.sellerId;
+      if (!sid || !sellerIds.includes(sid)) continue;
+      void validate(sid, saved.code).then((r) => {
+        if ("code" in r) setApplied((cur) => ({ ...cur, [sid]: r }));
+        else removePersistedCheckoutCoupon(userId, sid);
+      }).catch(() => {});
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, available.length, restored]);
 
@@ -249,20 +252,21 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
         toast({ title: "Coupon not applied", description: r.error, variant: "destructive" });
         return;
       }
-      const replaced = applied && applied.sellerId !== sid ? applied.coupon.code : null;
-      setApplied({ sellerId: sid, coupon: r });
+      setApplied((cur) => ({ ...cur, [sid]: r }));
       writePersistedCheckoutCoupon(userId, { code: String(r.code).toUpperCase(), sellerId: sid, savedAt: Date.now() });
       setCodeOpenFor(null);
       setCodeInput("");
       haptic("light");
-      if (replaced) toast({ title: `${String(r.code).toUpperCase()} applied`, description: `One coupon per order, so ${replaced} was removed.` });
     } catch (e: any) {
       toast({ title: "Coupon not applied", description: "Please try again in a moment.", variant: "destructive" });
     } finally {
       setBusySeller(null);
     }
   };
-  const removeCoupon = () => { setApplied(null); clearPersistedCheckoutCoupon(userId); };
+  const removeCoupon = (sid: string) => {
+    setApplied((cur) => { const next = { ...cur }; delete next[sid]; return next; });
+    removePersistedCheckoutCoupon(userId, sid);
+  };
 
   /* ── Totals (same maths as checkout and the server) ── */
   const { data: settings } = useQuery<{ processingFeePercent?: string }>({
@@ -272,9 +276,14 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
     staleTime: 60_000,
   });
   const feePercent = resolveProcessingFeePercent(settings?.processingFeePercent);
-  const appliedSub = applied ? shopSubtotal(applied.sellerId) : 0;
-  const minSpend = Number(applied?.coupon.minimumPurchase) || 0;
-  const couponOff = applied && appliedSub > 0 && appliedSub >= minSpend ? couponDiscountFor(applied.coupon, appliedSub) : 0;
+  // Each shop's coupon is worked out on that shop's ticked items only.
+  const couponOffFor = (sid: string) => {
+    const c = applied[sid];
+    const sub = shopSubtotal(sid);
+    if (!c || sub <= 0 || sub < (Number(c.minimumPurchase) || 0)) return 0;
+    return couponDiscountFor(c, sub);
+  };
+  const couponOff = sellerIds.reduce((total, sid) => total + couponOffFor(sid), 0);
   const selectedLines = available.filter(isSelected).map((i) => ({
     price: parseFloat(i.price) || 0,
     originalPrice: parseFloat(i.originalPrice || "") || null,
@@ -286,12 +295,14 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
     const store = storeQueries[idx]?.data;
     const items = available.filter((i) => (i.sellerId || "unknown") === sid);
     const offers = (couponQueries[idx]?.data || []).filter((c) => c?.code);
-    const isApplied = applied?.sellerId === sid && couponOff > 0;
+    const off = couponOffFor(sid);
+    const isApplied = !!applied[sid] && off > 0;
     return {
       sid, items, store,
       name: store?.name || "Shop",
       verified: String(store?.verificationStatus || "").toLowerCase() === "verified",
-      subtotal: shopSubtotal(sid) - (isApplied ? couponOff : 0),
+      couponOff: off,
+      subtotal: shopSubtotal(sid) - off,
       offer: offers[0] || null,
       isApplied,
     };
@@ -549,11 +560,11 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
 
           {/* Coupon + shop subtotal */}
           <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10, background: t.soft }}>
-            {shop.isApplied && applied ? (
+            {shop.isApplied ? (
               <div style={{ display: "flex", alignItems: "center", gap: 10, border: `1px solid ${t.accent}`, borderRadius: 12, padding: "10px 12px", background: t.tintStrong }}>
                 <Check size={18} color={t.link} w={2.6} />
-                <span style={{ flex: 1, fontSize: 13 }}><b>{String(applied.coupon.code).toUpperCase()}</b> applied · <b style={{ color: t.link }}>− {money(couponOff)}</b></span>
-                <button onClick={removeCoupon} style={{ height: 32, border: 0, background: "none", color: t.danger, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: F }}>Remove</button>
+                <span style={{ flex: 1, fontSize: 13 }}><b>{String(applied[shop.sid].code).toUpperCase()}</b> applied · <b style={{ color: t.link }}>− {money(shop.couponOff)}</b></span>
+                <button onClick={() => removeCoupon(shop.sid)} style={{ height: 32, border: 0, background: "none", color: t.danger, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: F }}>Remove</button>
               </div>
             ) : shop.offer ? (
               <button
@@ -572,12 +583,13 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
                 </span>
               </button>
             ) : codeOpenFor === shop.sid ? (
-              <form onSubmit={(e) => { e.preventDefault(); void applyCoupon(shop.sid, codeInput); }} style={{ display: "flex", gap: 8 }}>
-                <label style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, border: `1px dashed ${t.ring}`, borderRadius: 10, padding: "0 10px", background: t.card }}>
-                  <TagIcon color={t.link} size={16} />
-                  <input autoFocus value={codeInput} onChange={(e) => setCodeInput(e.target.value.toUpperCase())} placeholder="Shop coupon code" aria-label={`Coupon code for ${shop.name}`} style={{ flex: 1, minWidth: 0, height: 40, border: 0, outline: "none", fontSize: 16, background: "transparent", color: t.txt, fontFamily: F }} />
-                </label>
-                <button type="submit" disabled={busySeller === shop.sid} style={{ height: 42, padding: "0 16px", border: 0, borderRadius: 10, background: t.tintStrong, color: t.link, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: F }}>
+              <form
+                onSubmit={(e) => { e.preventDefault(); void applyCoupon(shop.sid, codeInput); }}
+                style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", boxSizing: "border-box", border: `1px dashed ${t.accent}`, borderRadius: 12, padding: "6px 6px 6px 12px", background: t.tint }}
+              >
+                <TagIcon color={t.link} />
+                <input autoFocus value={codeInput} onChange={(e) => setCodeInput(e.target.value.toUpperCase())} placeholder="Enter coupon code" aria-label={`Coupon code for ${shop.name}`} style={{ flex: 1, minWidth: 0, height: 36, border: 0, outline: "none", fontSize: 16, fontWeight: 700, background: "transparent", color: t.txt, fontFamily: F }} />
+                <button type="submit" disabled={busySeller === shop.sid || !codeInput.trim()} style={{ height: 32, padding: "0 14px", border: 0, borderRadius: 16, background: t.accentDeep, color: "#fff", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: F, opacity: codeInput.trim() ? 1 : 0.5 }}>
                   {busySeller === shop.sid ? "…" : "Apply"}
                 </button>
               </form>
@@ -598,6 +610,23 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
           </div>
         </section>
       ))}
+
+      {/* Saved for later */}
+      {saved.length > 0 && (
+        <section style={{ margin: "16px 12px 0", background: t.card, borderRadius: 16, padding: "12px 14px" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Saved for later ({saved.length})</div>
+          {saved.map((s) => (
+            <div key={`${s.productId}-${s.selectedColor}-${s.selectedSize}-${s.savedAt}`} style={{ display: "flex", gap: 12, alignItems: "center", padding: "6px 0" }}>
+              {s.image ? <img src={s.image} alt={s.name} style={{ width: 48, height: 60, borderRadius: 8, objectFit: "cover" }} /> : <span style={{ width: 48, height: 60, borderRadius: 8, background: t.stepBg }} />}
+              <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600 }}>
+                {s.name}
+                <div style={{ fontSize: 12, color: t.muted, fontWeight: 400 }}>{[money(s.price), variantText(s)].filter(Boolean).join(" · ")}</div>
+              </div>
+              <button onClick={() => moveToCart(s)} style={{ height: 34, padding: "0 12px", border: 0, borderRadius: 17, background: t.tintStrong, color: t.link, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: F, flexShrink: 0 }}>Move to cart</button>
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* Sold out */}
       {unavailable.length > 0 && (
@@ -623,23 +652,6 @@ export function MobileCart({ cartItems, isLoading, onQuantityChange, onRemoveIte
                   <button onClick={() => onRemoveItem(item.id)} style={{ height: 34, padding: "0 12px", border: 0, background: "none", color: t.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: F }}>Remove</button>
                 </div>
               </div>
-            </div>
-          ))}
-        </section>
-      )}
-
-      {/* Saved for later */}
-      {saved.length > 0 && (
-        <section style={{ margin: "16px 12px 0", background: t.card, borderRadius: 16, padding: "12px 14px" }}>
-          <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Saved for later ({saved.length})</div>
-          {saved.map((s) => (
-            <div key={`${s.productId}-${s.selectedColor}-${s.selectedSize}-${s.savedAt}`} style={{ display: "flex", gap: 12, alignItems: "center", padding: "6px 0" }}>
-              {s.image ? <img src={s.image} alt={s.name} style={{ width: 48, height: 60, borderRadius: 8, objectFit: "cover" }} /> : <span style={{ width: 48, height: 60, borderRadius: 8, background: t.stepBg }} />}
-              <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600 }}>
-                {s.name}
-                <div style={{ fontSize: 12, color: t.muted, fontWeight: 400 }}>{[money(s.price), variantText(s)].filter(Boolean).join(" · ")}</div>
-              </div>
-              <button onClick={() => moveToCart(s)} style={{ height: 34, padding: "0 12px", border: 0, borderRadius: 17, background: t.tintStrong, color: t.link, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: F, flexShrink: 0 }}>Move to cart</button>
             </div>
           ))}
         </section>

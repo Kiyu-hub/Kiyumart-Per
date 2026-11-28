@@ -84,7 +84,7 @@ if (process.env.MOCK_CART === "1") {
     { id: "ci3", productId: "p8", quantity: 1, variantId: "v8", selectedColor: "Black", selectedSize: "L", selectedImageIndex: 0, availableStock: 2 },
     { id: "ci4", productId: "p4", quantity: 1, variantId: null, selectedColor: null, selectedSize: "S", selectedImageIndex: 0, availableStock: 0 },
   ];
-  const coupons = [{ id: "cp1", code: "KIYU10", sellerId: "u1", discountType: "percentage", discountValue: "10", minimumPurchase: "500", isActive: true }];
+  const coupons = [{ id: "cp1", code: "KIYU10", sellerId: "u1", discountType: "percentage", discountValue: "10", minimumPurchase: "500", isActive: true }, { id: "cp2", code: "KENTE50", sellerId: "u3", discountType: "fixed", discountValue: "50", minimumPurchase: "0", isActive: true }];
   const view = () => cartRows.map((c) => { const p = products.find((x) => x.id === c.productId); return { ...c, productName: p.name, productImage: p.images[0], price: p.price }; });
   app.get("/api/auth/me", (_q, r) => send(r, { user: buyer, ...buyer }));
   app.get("/api/cart", (_q, r) => send(r, view()));
@@ -95,7 +95,7 @@ if (process.env.MOCK_CART === "1") {
   app.get("/api/wishlist", (_q, r) => send(r, []));
   app.get("/api/stores/by-seller/:sid", (q, r) => { const s = stores.find((x) => x.primarySellerId === q.params.sid); s ? send(r, { ...s, verificationStatus: s.id === "st1" ? "verified" : s.verificationStatus }) : r.status(404).json({ error: "Store not found" }); });
   app.get("/api/coupons/available", (q, r) => send(r, coupons.filter((c) => c.sellerId === q.query.sellerId && Number(q.query.orderTotal) >= Number(c.minimumPurchase))));
-  app.post("/api/coupons/validate", (q, r) => { const c = coupons.find((x) => x.code === String(q.body.code).toUpperCase() && x.sellerId === q.body.sellerId); if (!c) return send(r, { valid: false, message: "Invalid coupon code" }); if (Number(q.body.orderTotal) < Number(c.minimumPurchase)) return send(r, { valid: false, message: "Minimum purchase of 500 required" }); send(r, { valid: true, coupon: c, discountAmount: (Number(q.body.orderTotal) * 0.1).toFixed(2) }); });
+  app.post("/api/coupons/validate", (q, r) => { const c = coupons.find((x) => x.code === String(q.body.code).toUpperCase() && x.sellerId === q.body.sellerId); if (!c) return send(r, { valid: false, message: "Invalid coupon code" }); if (Number(q.body.orderTotal) < Number(c.minimumPurchase)) return send(r, { valid: false, message: "Minimum purchase of 500 required" }); send(r, { valid: true, coupon: c }); });
   settings.processingFeePercent = "1.95";
 }
 

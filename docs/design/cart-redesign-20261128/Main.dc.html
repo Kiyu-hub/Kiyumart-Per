@@ -121,6 +121,21 @@ button{font-family:inherit}
     </section>
   </sc-for>
 
+  
+
+  <sc-if value="{{hasSaved}}" hint-placeholder-val="{{ false }}">
+    <section style="margin: 16px 12px 0; background: #FFFFFF; border-radius: 16px; padding: 12px 14px">
+      <div style="font-size: 14px; font-weight: 700; margin-bottom: 10px">Saved for later ({{savedCount}})</div>
+      <sc-for list="{{saved}}" as="s" hint-placeholder-count="1">
+        <div style="display: flex; gap: 12px; align-items: center; padding: 6px 0">
+          <img src="{{s.img}}" alt="{{s.name}}" style="width: 48px; height: 60px; border-radius: 8px; object-fit: cover">
+          <div style="flex: 1; min-width: 0; font-size: 13px; font-weight: 600">{{s.name}}<div style="font-size: 12px; color: #5F6368; font-weight: 400">{{s.priceLabel}}</div></div>
+          <button onClick="{{s.restore}}" style="height: 34px; padding: 0 12px; border: 0; border-radius: 17px; background: #E0F2F1; color: #00695C; font-size: 12px; font-weight: 700; cursor: pointer">Move to cart</button>
+        </div>
+      </sc-for>
+    </section>
+  </sc-if>
+
   <section style="margin: 16px 12px 0; background: #FFFFFF; border-radius: 16px; padding: 12px 14px">
     <div style="font-size: 14px; font-weight: 700; margin-bottom: 10px">Unavailable (1)</div>
     <div style="display: flex; gap: 12px; align-items: center">
@@ -137,22 +152,7 @@ button{font-family:inherit}
         </div>
       </div>
     </div>
-  </section>
-
-  <sc-if value="{{hasSaved}}" hint-placeholder-val="{{ false }}">
-    <section style="margin: 16px 12px 0; background: #FFFFFF; border-radius: 16px; padding: 12px 14px">
-      <div style="font-size: 14px; font-weight: 700; margin-bottom: 10px">Saved for later ({{savedCount}})</div>
-      <sc-for list="{{saved}}" as="s" hint-placeholder-count="1">
-        <div style="display: flex; gap: 12px; align-items: center; padding: 6px 0">
-          <img src="{{s.img}}" alt="{{s.name}}" style="width: 48px; height: 60px; border-radius: 8px; object-fit: cover">
-          <div style="flex: 1; min-width: 0; font-size: 13px; font-weight: 600">{{s.name}}<div style="font-size: 12px; color: #5F6368; font-weight: 400">{{s.priceLabel}}</div></div>
-          <button onClick="{{s.restore}}" style="height: 34px; padding: 0 12px; border: 0; border-radius: 17px; background: #E0F2F1; color: #00695C; font-size: 12px; font-weight: 700; cursor: pointer">Move to cart</button>
-        </div>
-      </sc-for>
-    </section>
-  </sc-if>
-
-  <section style="margin: 16px 12px 0; background: #FFFFFF; border-radius: 16px; padding: 14px">
+  </section><section style="margin: 16px 12px 0; background: #FFFFFF; border-radius: 16px; padding: 14px">
     <div style="font-size: 15px; font-weight: 800; margin-bottom: 12px">Order summary</div>
     <div style="display: flex; flex-direction: column; gap: 9px; font-size: 14px">
       <div style="display: flex; justify-content: space-between"><span style="color: #5F6368">Items ({{selectedCount}})</span><span>{{wasTotalLabel}}</span></div>

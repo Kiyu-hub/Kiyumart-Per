@@ -1389,6 +1389,7 @@ export class DbStorage implements IStorage {
       deliveryFee: number;
       processingFee: number;
       couponDiscount: number;
+      couponCode?: string | null;
       total: number;
     }>
   ): Promise<{ sessionId: string; orders: Order[] }> {
@@ -1429,6 +1430,7 @@ export class DbStorage implements IStorage {
           deliveryFee: sellerGroup.deliveryFee.toFixed(2),
           processingFee: sellerGroup.processingFee.toFixed(2),
           couponDiscount: sellerGroup.couponDiscount > 0 ? sellerGroup.couponDiscount.toFixed(2) : null,
+          couponCode: sellerGroup.couponCode !== undefined ? sellerGroup.couponCode : (baseOrderData as any).couponCode ?? null,
           total: sellerGroup.total.toFixed(2),
         }).returning();
 
@@ -1451,11 +1453,14 @@ export class DbStorage implements IStorage {
         createdOrders.push(newOrder);
       }
 
-      // Increment coupon usage count if coupon was applied
-      if (baseOrderData.couponCode) {
+      // Increment usage once for each coupon used in this checkout (one per shop).
+      const usedCouponCodes = new Set(
+        createdOrders.map((order: any) => String(order?.couponCode || "").trim()).filter(Boolean),
+      );
+      for (const usedCode of Array.from(usedCouponCodes)) {
         await tx.update(coupons)
           .set({ usedCount: sql`COALESCE(${coupons.usedCount}, 0) + 1` })
-          .where(eq(coupons.code, baseOrderData.couponCode));
+          .where(eq(coupons.code, usedCode));
       }
 
       return { sessionId, orders: createdOrders };

@@ -116,6 +116,7 @@ import { getRiderRiskScore, listRiderRiskScores, recordRiderRiskSignal } from ".
 import { logSystemActivity } from "./observability";
 import { toPublicStore, toPublicStores, toAdminStoreView, resolveAdminStoreViewer } from "./publicStore";
 import { clearPurchasedCartItems } from "./cartCleanup";
+import { normalizeRequestedCouponCodes } from "./couponRequest";
 import { encryptField, decryptField, isEncrypted } from "./utils/sensitiveEncrypt";
 import {
   recordReferralSignup,
@@ -10746,42 +10747,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Re-validate coupon on server-side
-      // For multi-vendor carts, coupon applies ONLY to the seller who issued it
-      let couponOwningSellerId: string | null = null;
-      
-      if (orderData.couponCode) {
+      // Re-validate shop coupons on server-side. Each coupon applies ONLY to the
+      // shop that issued it, and each shop may use at most one coupon.
+      const couponCodeBySeller = new Map<string, string>();
+      for (const requestedCode of normalizeRequestedCouponCodes(orderData)) {
         try {
-          // Load coupon to determine which seller owns it
-          const coupon = await storage.getCouponByCode(orderData.couponCode);
-          
+          const coupon = await storage.getCouponByCode(requestedCode);
           if (!coupon) {
-            return res.status(400).json({ 
-              error: "Invalid coupon code" 
-            });
+            return res.status(400).json({ error: "Invalid coupon code", userMessage: `Coupon ${requestedCode} is not valid.` });
           }
-          
           if (!coupon.isActive) {
-            return res.status(400).json({ 
-              error: "This coupon is no longer active" 
-            });
+            return res.status(400).json({ error: "This coupon is no longer active", userMessage: `Coupon ${requestedCode} is no longer active.` });
           }
-          
-          // Check if coupon owner's products are in the cart
           if (!productsBySeller.has(coupon.sellerId)) {
-            return res.status(400).json({ 
-              error: "This coupon can only be used with products from the seller who issued it" 
+            return res.status(400).json({
+              error: "This coupon can only be used with products from the seller who issued it",
             });
           }
-          
-          // Set the coupon owner (will be validated against seller's subtotal later)
-          couponOwningSellerId = coupon.sellerId;
+          if (couponCodeBySeller.has(coupon.sellerId)) {
+            return res.status(400).json({
+              error: "Only one coupon per shop",
+              userMessage: "Only one coupon can be used for each shop.",
+            });
+          }
+          couponCodeBySeller.set(coupon.sellerId, coupon.code);
         } catch (validationError: any) {
-          return res.status(400).json({ 
-            error: `Coupon validation failed: ${validationError.message}` 
+          return res.status(400).json({
+            error: `Coupon validation failed: ${validationError.message}`
           });
         }
       }
+      const couponOwningSellerId: string | null = couponCodeBySeller.size ? Array.from(couponCodeBySeller.keys())[0] : null;
       
       // Recalculate total server-side (note: multi-vendor coupons calculated per-seller later)
       const requestedExternalDeliveryByBus = orderData.externalDeliveryByBus === true;
@@ -10924,10 +10920,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             
             // Apply coupon discount ONLY to the seller who owns the coupon
             let sellerCouponDiscount = 0;
-            if (couponOwningSellerId && sellerGroup.sellerId === couponOwningSellerId && orderData.couponCode) {
+            const sellerCouponCode = couponCodeBySeller.get(sellerGroup.sellerId) || null;
+            if (sellerCouponCode) {
               // Validate coupon against THIS seller's subtotal
               const validationResult = await storage.validateCoupon(
-                orderData.couponCode,
+                sellerCouponCode,
                 sellerGroup.sellerId,
                 sellerSubtotal
               );
@@ -10960,6 +10957,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               deliveryFee: sellerDeliveryFee,
               processingFee: sellerProcessingFee,
               couponDiscount: sellerCouponDiscount > 0 ? sellerCouponDiscount : 0, // Will be converted to null in storage
+              // Stamp each shop's order with its own coupon so usage counts and refunds stay per shop.
+              couponCode: sellerCouponDiscount > 0 ? sellerCouponCode : null,
               total: sellerTotal
             };
           })
@@ -10979,7 +10978,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           deliveryLongitude: resolvedDeliveryLongitude !== null ? String(resolvedDeliveryLongitude) : null,
           currency: orderData.currency || 'GHS',
           paymentStatus: 'pending',
-          couponCode: orderData.couponCode || null,
+          couponCode: null,
           estimatedDelivery: orderData.estimatedDelivery || null,
         };
         
@@ -11001,9 +11000,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Single vendor: use existing createOrder method
         // For single-vendor, validate coupon if present
         let singleVendorCouponDiscount = 0;
-        if (couponOwningSellerId && orderData.couponCode) {
+        const singleVendorCouponCode = couponOwningSellerId ? couponCodeBySeller.get(couponOwningSellerId) || null : null;
+        if (couponOwningSellerId && singleVendorCouponCode) {
           const validationResult = await storage.validateCoupon(
-            orderData.couponCode,
+            singleVendorCouponCode,
             couponOwningSellerId,
             serverSubtotal
           );
@@ -11039,6 +11039,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           deliveryLatitude: resolvedDeliveryLatitude !== null ? String(resolvedDeliveryLatitude) : null,
           deliveryLongitude: resolvedDeliveryLongitude !== null ? String(resolvedDeliveryLongitude) : null,
           subtotal: serverSubtotal.toFixed(2),
+          couponCode: singleVendorCouponDiscount > 0 ? singleVendorCouponCode : null,
           couponDiscount: singleVendorCouponDiscount > 0 ? singleVendorCouponDiscount.toFixed(2) : null,
           processingFee: finalProcessingFee.toFixed(2),
           total: finalTotal.toFixed(2),
