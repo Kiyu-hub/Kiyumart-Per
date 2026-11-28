@@ -5,7 +5,7 @@
     "Checkout.dc.html": {
       "h": 1260,
       "radius": 28,
-      "title": "Checkout",
+      "title": "Checkout — delivery",
       "w": 390,
       "x": 470,
       "y": 1500
@@ -16,6 +16,14 @@
       "title": "Checkout — no delivery details yet",
       "w": 390,
       "x": 0,
+      "y": 1500
+    },
+    "CheckoutPickup.dc.html": {
+      "h": 1100,
+      "radius": 28,
+      "title": "Checkout — pick up at the shop",
+      "w": 390,
+      "x": 940,
       "y": 1500
     },
     "Location.dc.html": {
@@ -35,9 +43,9 @@
       "y": 0
     },
     "LocationPickup.dc.html": {
-      "h": 1080,
+      "h": 1000,
       "radius": 28,
-      "title": "Delivery details — Pickup (none set yet)",
+      "title": "Delivery details — Pick up at the shop",
       "w": 390,
       "x": 470,
       "y": 0
@@ -55,11 +63,11 @@
       "radius": 28,
       "title": "Order placed",
       "w": 390,
-      "x": 940,
+      "x": 1410,
       "y": 1500
     },
     "TrackOrder.dc.html": {
-      "x": 1410,
+      "x": 1880,
       "y": 1500,
       "w": 390,
       "h": 1320,
@@ -83,13 +91,13 @@
   ],
   "notes": {
     "n1": {
-      "text": "One page: tap Use my current location and the map jumps to where you are (no dragging, no pin to move). Check the area and region, pick how you receive it, add your phone, Save. The map is the app's own map and shows only when the admin turns it on (third board: off). Pickup stays empty until an admin adds pickup points. Fourth board: KiyuMart's own riders switched on.",
+      "text": "One page for every way of getting an order. Delivery in Accra & nearby: the shop books a Yango or Bolt motorbike rider; the buyer pays the rider for delivery on arrival. Bus to other regions: the shop books the bus and contacts the buyer, who pays the bus fee before it's sent and collects at the station. Pick up at the shop: free, no map needed. Admin pickup points will be added to this list later. The map is the app's own map (tap Use my current location; no dragging) and shows only when the admin turns it on. Fourth board: KiyuMart's own riders switched on (fee paid in the app).",
       "w": 240,
       "x": -259,
       "y": -151
     },
     "n2": {
-      "text": "Checkout shows the saved delivery details with Change. Pay is off until details are added. The customer pays the delivery fee: we send the amount before dispatch and it is paid outside the app. Track order follows each shop's parcel.",
+      "text": "Same names, icons and wording on every screen: Delivery details → Checkout → Order placed → Track order. Checkout shows how you get it with Change (back to Delivery details). Items are paid in the app; delivery is paid to the rider or bus as described.",
       "w": 240,
       "x": -259,
       "y": 1396
@@ -118,6 +126,7 @@
     "LocationRiders.dc.html",
     "CheckoutNoAddress.dc.html",
     "Checkout.dc.html",
+    "CheckoutPickup.dc.html",
     "OrderPlaced.dc.html",
     "TrackOrder.dc.html"
   ],

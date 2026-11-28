@@ -15,3 +15,9 @@ Fields map to existing checkout state: deliveryAddress, deliveryLat/Lng, deliver
 - Delivery wording (round 2): the shop arranges delivery (Yango, Bolt, Uber, bus or rider); the customer pays the driver for delivery when the parcel arrives.
 - Pickup points stay empty until an admin adds them.
 - Added **TrackOrder**: status timeline (Order placed → Preparing delivery → Packaged → On the way → Completed), delivery fee "To be confirmed", deliver-to, items, payment, help button.
+
+## Owner feedback round 3 (28 Nov)
+- Delivery in Accra & nearby: the shop books a Yango or Bolt motorbike rider (not the in-app rider). Items are paid in the app; the buyer pays the rider for delivery on arrival.
+- Bus to other regions: the shop books the bus and contacts the buyer, who pays the bus fee before it's sent and collects at the station.
+- Pickup: "Pick up at the shop" (free, each shop's location listed) while no admin pickup points exist. Desktop already allows pickup with no station selected when none exist.
+- Added **CheckoutPickup**. Same names, icons and wording across Delivery details → Checkout → Order placed → Track order.
