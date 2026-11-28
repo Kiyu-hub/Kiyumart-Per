@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Delivery details — own riders on</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>body{margin:0}button,input,textarea{font-family:inherit}</style></helmet>
+<div style="width: 390px; min-height: 1180px; position: relative; box-sizing: border-box; background: #FFFFFF; color: #1A1A1A; font-family: -apple-system, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif; padding-bottom: 40px">
+  <header style="display: flex; align-items: center; height: 56px; padding: 8px 8px 0">
+    <button aria-label="Back" style="width: 44px; height: 44px; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+    <div style="flex: 1; text-align: center; font-size: 17px; font-weight: 700">Delivery details</div>
+    <div style="width: 44px; display: grid; place-items: center"></div>
+  </header>
+  <div style="position: relative; height: 240px; margin: 8px 16px 0; border-radius: 16px; overflow: hidden; background: #EEF1EA">
+    <svg width="358" height="240" viewBox="0 0 358 240" style="position: absolute; inset: 0" aria-hidden="true"><rect x="20" y="100" width="70" height="50" rx="6" fill="#DCE8D6"/><rect x="170" y="110" width="50" height="45" rx="6" fill="#E4E4DE"/><rect x="285" y="105" width="80" height="50" rx="6" fill="#DCE8D6"/><rect x="30" y="10" width="60" height="40" rx="6" fill="#E4E4DE"/><rect x="290" y="200" width="70" height="40" rx="6" fill="#E4E4DE"/><rect x="165" y="200" width="55" height="40" rx="6" fill="#DCE8D6"/><path d="M-10 70 C 90 60, 160 110, 400 90" stroke="#FFFFFF" stroke-width="14" fill="none"/><path d="M120 -10 C 130 80, 110 160, 150 260" stroke="#FFFFFF" stroke-width="10" fill="none"/><path d="M260 -10 L 240 260" stroke="#FFFFFF" stroke-width="8" fill="none"/><path d="M-10 180 C 100 170, 220 200, 400 170" stroke="#FFFFFF" stroke-width="9" fill="none"/><path d="M-10 70 C 90 60, 160 110, 400 90" stroke="#F5D58A" stroke-width="4" fill="none"/><text x="300" y="82" font-size="10" fill="#7A7A7A" font-family="system-ui">Lagos Ave</text><text x="24" y="168" font-size="10" fill="#7A7A7A" font-family="system-ui">Boundary Rd</text></svg>
+    <div style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -100%)"><svg style="flex-shrink: 0" width="40" height="40" viewBox="0 0 24 24" fill="#00796B" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg></div><div style="position: absolute; left: 50%; top: 50%; width: 14px; height: 6px; border-radius: 50%; background: rgba(0,0,0,0.18); transform: translate(-50%, -2px)"></div>
+    <button aria-label="Centre on my location" style="position: absolute; right: 12px; top: 12px; width: 40px; height: 40px; border-radius: 20px; border: 0; background: #FFFFFF; box-shadow: 0 1px 4px rgba(0,0,0,0.18); display: grid; place-items: center; cursor: pointer"><svg style="flex-shrink: 0" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/></svg></button>
+    <div style="position: absolute; left: 12px; bottom: 12px; padding: 6px 10px; border-radius: 12px; background: rgba(255,255,255,0.92); font-size: 12px; color: #6B6B6B">Drag the map to move the pin</div>
+  </div>
+  <div style="padding: 12px 16px 0"><button style="width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid #D6D6D6; border-radius: 14px; background: #FFFFFF; text-align: left; cursor: pointer; color: #1A1A1A"><svg style="flex-shrink: 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#00796B" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="2" x2="5" y1="12" y2="12"/><line x1="19" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="5"/><line x1="12" x2="12" y1="19" y2="22"/><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="3"/></svg><span style="flex: 1"><span style="display: block; font-size: 15px; font-weight: 600; color: #00796B">Use my current location</span><span style="display: block; font-size: 12px; color: #6B6B6B; margin-top: 2px">Location found · accurate to about 20 m</span></span></button></div>
+  <div style="display: flex; gap: 12px; align-items: flex-start; margin: 16px 24px 0"><svg style="flex-shrink: 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg>
+    <div style="flex: 1"><div style="font-size: 16px; font-weight: 700">Jungle Avenue, East Legon</div>
+    <div style="font-size: 14px; color: #6B6B6B; margin-top: 2px">Accra · Greater Accra Region</div></div></div>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 14px 24px 0">
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; color: #1A1A1A">Area / town
+      <span style="position: relative; display: block"><input type="text" value="East Legon" style="width: 100%; box-sizing: border-box; height: 48px; border: 1px solid #D6D6D6; border-radius: 12px; padding: 0 14px 0 14px; font-size: 16px; color: #1A1A1A; background: #FFFFFF; font-family: inherit"/></span>
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; color: #1A1A1A">Region
+      <span style="position: relative; display: block"><input type="text" value="Greater Accra" style="width: 100%; box-sizing: border-box; height: 48px; border: 1px solid #D6D6D6; border-radius: 12px; padding: 0 14px 0 14px; font-size: 16px; color: #1A1A1A; background: #FFFFFF; font-family: inherit"/></span>
+    </label>
+  </div>
+  <div style="padding: 12px 24px 0">
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; color: #1A1A1A">House, street or landmark
+      <span style="position: relative; display: block"><input type="text" placeholder="e.g. Blue gate opposite Shell" style="width: 100%; box-sizing: border-box; height: 48px; border: 1px solid #D6D6D6; border-radius: 12px; padding: 0 14px 0 14px; font-size: 16px; color: #1A1A1A; background: #FFFFFF; font-family: inherit"/></span><span style="font-size: 12px; color: #8A8A8A; font-weight: 400">Optional. Helps the driver find you.</span>
+    </label>
+  </div>
+<div style="padding: 24px 24px 4px; font-size: 13px; font-weight: 600; color: #8A8A8A">How do you want to receive it?</div>
+  <div style="padding: 0 24px">
+    <div style="border-bottom: 1px solid #EFEFEF;"><label style="display: flex; align-items: flex-start; gap: 14px; padding: 14px 0; cursor: pointer"><svg style="flex-shrink: 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg><span style="flex: 1"><span style="display: block; font-size: 16px; font-weight: 700">Rider delivery</span><span style="display: block; font-size: 13px; color: #6B6B6B; margin-top: 3px; line-height: 1.45">A KiyuMart rider brings each shop&#x27;s parcel to you.</span></span><span style="width: 22px; height: 22px; border-radius: 11px; border: 2px solid #00796B; box-sizing: border-box; display: grid; place-items: center; flex-shrink: 0"><span style="width: 10px; height: 10px; border-radius: 5px; background: #00796B"></span></span></label><div style="margin: 0 0 14px 36px; padding: 12px 14px; border: 1px solid #EFEFEF; border-radius: 14px; display: flex; align-items: center; gap: 10px"><span style="flex: 1"><span style="display: block; font-size: 13px; color: #6B6B6B">Delivery zone (from your location)</span><span style="display: block; font-size: 15px; font-weight: 600; margin-top: 2px">East Legon & Airport</span></span><span style="font-size: 14px; font-weight: 700">GH₵25.00<span style="display: block; font-size: 11px; font-weight: 500; color: #6B6B6B; text-align: right">per shop</span></span></div></div>
+    <div style=""><label style="display: flex; align-items: flex-start; gap: 14px; padding: 14px 0; cursor: pointer"><svg style="flex-shrink: 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/></svg><span style="flex: 1"><span style="display: block; font-size: 16px; font-weight: 500">Pickup</span><span style="display: block; font-size: 13px; color: #6B6B6B; margin-top: 3px; line-height: 1.45">Collect it yourself from a pickup point.</span></span><span style="font-size: 14px; font-weight: 600; color: #1A1A1A">Free</span><span style="width: 22px; height: 22px; border-radius: 11px; border: 2px solid #BDBDBD; box-sizing: border-box; flex-shrink: 0"></span></label></div>
+  </div>
+<div style="padding: 24px 24px 4px; font-size: 13px; font-weight: 600; color: #8A8A8A">Contact</div>
+  <div style="padding: 4px 24px 0">
+    <label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px; font-weight: 600; color: #1A1A1A">Phone number for this delivery
+      <span style="position: relative; display: block"><input type="tel" value="0241234567" placeholder="0241234567 or +233241234567" style="width: 100%; box-sizing: border-box; height: 48px; border: 1px solid #D6D6D6; border-radius: 12px; padding: 0 14px 0 14px; font-size: 16px; color: #1A1A1A; background: #FFFFFF; font-family: inherit"/></span><span style="font-size: 12px; color: #8A8A8A; font-weight: 400">Use a valid Ghana number so delivery and payment support can reach you quickly.</span>
+    </label>
+  </div>
+<div style="padding: 28px 24px 0"><button style="width: 100%; height: 52px; border: 0; border-radius: 26px; background: #00796B; color: #FFFFFF; font-size: 16px; font-weight: 700; cursor: pointer">Save delivery details</button></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

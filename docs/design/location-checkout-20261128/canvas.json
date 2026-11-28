@@ -1,0 +1,110 @@
+{
+  "v": 3,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-11-28T20:00:00Z"
+  },
+  "title": "KiyuMart — Delivery location & checkout for phone (proposal)",
+  "launch": {
+    "view": "canvas"
+  },
+  "pages": [],
+  "boards": {
+    "Location.dc.html": {
+      "x": 0,
+      "y": 0,
+      "w": 390,
+      "h": 1240,
+      "title": "Delivery details",
+      "radius": 28
+    },
+    "LocationPickup.dc.html": {
+      "x": 470,
+      "y": 0,
+      "w": 390,
+      "h": 1160,
+      "title": "Delivery details — Pickup",
+      "radius": 28
+    },
+    "LocationNoMap.dc.html": {
+      "x": 940,
+      "y": 0,
+      "w": 390,
+      "h": 1100,
+      "title": "Delivery details — map turned off",
+      "radius": 28
+    },
+    "LocationRiders.dc.html": {
+      "x": 1410,
+      "y": 0,
+      "w": 390,
+      "h": 1180,
+      "title": "Delivery details — own riders on",
+      "radius": 28
+    },
+    "CheckoutNoAddress.dc.html": {
+      "x": 0,
+      "y": 1500,
+      "w": 390,
+      "h": 844,
+      "title": "Checkout — no delivery details yet",
+      "radius": 28
+    },
+    "Checkout.dc.html": {
+      "x": 470,
+      "y": 1500,
+      "w": 390,
+      "h": 1260,
+      "title": "Checkout",
+      "radius": 28
+    },
+    "OrderPlaced.dc.html": {
+      "x": 940,
+      "y": 1500,
+      "w": 390,
+      "h": 844,
+      "title": "Order placed",
+      "radius": 28
+    }
+  },
+  "order": [
+    "Location.dc.html",
+    "LocationPickup.dc.html",
+    "LocationNoMap.dc.html",
+    "LocationRiders.dc.html",
+    "CheckoutNoAddress.dc.html",
+    "Checkout.dc.html",
+    "OrderPlaced.dc.html"
+  ],
+  "notes": {
+    "t1": {
+      "x": 0,
+      "y": -260,
+      "text": "Delivery details — phone (proposal)",
+      "kind": "title1",
+      "maxW": 1800
+    },
+    "n1": {
+      "x": 0,
+      "y": -170,
+      "text": "One page: tap to find your location, check the area and region, pick how you receive it, add your phone, Save. The map shows only when the admin has it turned on (third board shows it off). The fourth board is what buyers see when KiyuMart's own riders are switched on. Map here is a drawing; the real page uses the same Mapbox map as desktop.",
+      "kind": "body",
+      "maxW": 1800
+    },
+    "t2": {
+      "x": 0,
+      "y": 1300,
+      "text": "Checkout — phone (proposal)",
+      "kind": "title1",
+      "maxW": 1800
+    },
+    "n2": {
+      "x": 0,
+      "y": 1390,
+      "text": "Checkout shows the saved delivery details with Change (opens the page above). Without them, Pay is off until details are added. Shop coupons and Paystack charges follow the approved cart.",
+      "kind": "body",
+      "maxW": 1800
+    }
+  },
+  "designSystems": []
+}
