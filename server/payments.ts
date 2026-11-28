@@ -126,38 +126,12 @@ export async function processPaystackChargeSuccess(eventData: any, storage: any,
       });
       await Promise.all(updatePromises);
 
-      // Decrement stock atomically once payment is confirmed. Two buyers
-      // can race for the last unit of a popular variant — using
-      // GREATEST(stock - qty, 0) at the SQL layer prevents negative stock
-      // and is safe under concurrent webhooks.
-      try {
-        const { db } = await import("../db/index");
-        const { products: productsTable, productVariants } = await import("@shared/schema");
-        const { eq, sql: drizzleSql } = await import("drizzle-orm");
-        for (const order of orders) {
-          const items = await storage.getOrderItems(order.id).catch(() => []);
-          for (const item of items as any[]) {
-            const qty = Math.max(1, Math.floor(Number(item?.quantity) || 0));
-            if (item?.variantId) {
-              await db
-                .update(productVariants)
-                .set({ stock: drizzleSql`GREATEST(COALESCE(${productVariants.stock}, 0) - ${qty}, 0)` })
-                .where(eq(productVariants.id, item.variantId))
-                .catch((e: any) => console.error('[STOCK] variant decrement failed:', e?.message || e));
-            } else if (item?.productId) {
-              await db
-                .update(productsTable)
-                .set({ stock: drizzleSql`GREATEST(COALESCE(${productsTable.stock}, 0) - ${qty}, 0)` })
-                .where(eq(productsTable.id, item.productId))
-                .catch((e: any) => console.error('[STOCK] product decrement failed:', e?.message || e));
-            }
-          }
-        }
-      } catch (stockErr: any) {
-        // Stock decrement failure must not block the rest of the
-        // payment-confirmed flow — the order is paid either way.
-        console.error('[STOCK] post-payment decrement error:', stockErr?.message || stockErr);
-      }
+      // Stock is NOT decremented here. It is reserved when the order is created
+      // (storage.createOrder / createMultiSellerOrders -> reserveProductStock,
+      // per size/colour variant or per product) and given back if an unpaid
+      // order is cancelled. Decrementing again after payment counted every sale
+      // twice and, because order items carry no variantId here, took variant
+      // sales off the product total instead of the chosen size/colour.
 
       if (typeof (storage as any).removePurchasedCartItems === "function" || typeof storage.clearCart === "function") {
         const { clearPurchasedCartItems } = await import("./cartCleanup");

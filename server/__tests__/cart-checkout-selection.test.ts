@@ -83,6 +83,12 @@ async function main() {
   check(!missing.ok, "own riders without a zone is refused (browser can't set the fee)");
   const inactive = computeDeliveryFees({ externalDelivery: false, isPickup: false, zone: { fee: "20", isActive: false }, sellerIds: ["A"] });
   check(!inactive.ok, "inactive zone is refused");
+  console.log("stock is counted once (at order creation, not again after payment)");
+  const fs = await import("node:fs");
+  const paymentsSrc = fs.readFileSync(new URL("../payments.ts", import.meta.url), "utf8");
+  check(!/GREATEST\(COALESCE\(\$\{(productVariants|productsTable)\.stock\}/.test(paymentsSrc), "payment webhook does not decrement stock a second time");
+  const storageSrc = fs.readFileSync(new URL("../storage.ts", import.meta.url), "utf8");
+  check((storageSrc.match(/await reserveProductStock\(/g) || []).length >= 2, "both order-creation paths reserve stock");
   check(resolveProcessingFeePercent(undefined) === 1.95 && resolveProcessingFeePercent("1.5") === 1.5, "fee percent from settings, default 1.95");
 }
 
