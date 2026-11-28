@@ -12,6 +12,6 @@ Fields map to existing checkout state: deliveryAddress, deliveryLat/Lng, deliver
 
 ## Owner feedback round 1 (28 Nov)
 - Map is the app's own map (Esri satellite tiles, Leaflet controls). Not draggable, no movable pin: tapping "Use my current location" centres it on the buyer.
-- The customer pays the delivery fee. We send the amount in the app before dispatch and it's paid outside the app (no phone calls).
+- Delivery wording (round 2): the shop arranges delivery (Yango, Bolt, Uber, bus or rider); the customer pays the driver for delivery when the parcel arrives.
 - Pickup points stay empty until an admin adds them.
 - Added **TrackOrder**: status timeline (Order placed → Preparing delivery → Packaged → On the way → Completed), delivery fee "To be confirmed", deliver-to, items, payment, help button.
